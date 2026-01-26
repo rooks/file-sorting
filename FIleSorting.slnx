@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Shared/Shared.csproj" />
+    <Project Path="src/Generator/Generator.csproj" />
+    <Project Path="src/Sorter/Sorter.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Shared.Tests/Shared.Tests.csproj" />
+    <Project Path="tests/Generator.Tests/Generator.Tests.csproj" />
+    <Project Path="tests/Sorter.Tests/Sorter.Tests.csproj" />
+  </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Sorter.Benchmarks/Sorter.Benchmarks.csproj" />
+    <Project Path="benchmarks/Generator.Benchmarks/Generator.Benchmarks.csproj" />
+  </Folder>
+</Solution>
