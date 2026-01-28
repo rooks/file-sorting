@@ -27,7 +27,7 @@ public class SorterBenchmarks
         _outputFile = Path.Combine(_tempDir, "output.txt");
 
         // Generate test file
-        var pool = new StringPool(duplicateRatio: 0.3, seed: 42);
+        var pool = DictionaryStringPool.CreateDefault(seed: 42);
         var lineGen = new LineGenerator(pool, seed: 42);
         var fileGen = new FileGenerator(lineGen);
         fileGen.GenerateAsync(_inputFile, FileSize).GetAwaiter().GetResult();

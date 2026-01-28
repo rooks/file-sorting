@@ -1,4 +1,4 @@
-using System.CommandLine;
+﻿using System.CommandLine;
 using FileSorting.Shared;
 using FileSorting.Sorter;
 

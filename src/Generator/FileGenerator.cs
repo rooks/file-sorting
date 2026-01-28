@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.IO.Pipelines;
 
 namespace FileSorting.Generator;
@@ -7,8 +6,11 @@ public sealed class FileGenerator(
     LineGenerator lineGenerator,
     IProgress<long>? progress = null)
 {
+    private const int FileStreamBuffer = 4 * 1024 * 1024; // 4MB
+    private const int PipeBuffer = 8 * 1024; // 8KB
+
     // Max bytes a single line can occupy (number + ". " + string + newline)
-    // Conservative estimate: 10 digits + 2 + ~500 char string + 1
+    // estimate: 10 digits + 2 + ~500 char string + 1
     private const int MaxLineSize = 1024;
 
     public async Task GenerateAsync(
@@ -16,18 +18,19 @@ public sealed class FileGenerator(
         long targetSize,
         CancellationToken cancellationToken = default)
     {
-        // Scale buffer sizes based on target file size
-        var (fileStreamBuffer, pipeBuffer, flushInterval) = GetBufferSizes(targetSize);
+        // scale buffer sizes based on target file size
+        var flushInterval = GetFlushInterval(targetSize);
 
         await using var fileStream = new FileStream(
             outputPath,
             FileMode.Create,
             FileAccess.Write,
             FileShare.None,
-            bufferSize: fileStreamBuffer,
+            bufferSize: FileStreamBuffer,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
 
-        var writer = PipeWriter.Create(fileStream, new StreamPipeWriterOptions(leaveOpen: false, minimumBufferSize: pipeBuffer));
+        var opts = new StreamPipeWriterOptions(leaveOpen: false, minimumBufferSize: PipeBuffer);
+        var writer = PipeWriter.Create(fileStream, opts);
 
         var bytesWritten = 0L;
         var lastReported = 0L;
@@ -39,7 +42,7 @@ public sealed class FileGenerator(
                 cancellationToken.ThrowIfCancellationRequested();
 
                 // Get a larger buffer and write multiple lines
-                var buffer = writer.GetMemory(pipeBuffer);
+                var buffer = writer.GetMemory(PipeBuffer);
                 var offset = 0;
 
                 // Fill the buffer with multiple lines
@@ -74,29 +77,14 @@ public sealed class FileGenerator(
         }
     }
 
-    private static (int fileStreamBuffer, int pipeBuffer, long flushInterval) GetBufferSizes(long targetSize)
+    private static long GetFlushInterval(long targetSize)
     {
         return targetSize switch
         {
-            < 1 * 1024 * 1024 => (           // < 1MB
-                fileStreamBuffer: 16 * 1024,             // 16KB
-                pipeBuffer: 8 * 1024,                    // 8KB
-                flushInterval: targetSize / 4),          // 4 reports total
-
-            < 100 * 1024 * 1024 => (         // < 100MB
-                fileStreamBuffer: 256 * 1024,            // 256KB
-                pipeBuffer: 64 * 1024,                   // 64KB
-                flushInterval: 10 * 1024 * 1024),        // 10MB
-
-            < 1024L * 1024 * 1024 => (       // < 1GB
-                fileStreamBuffer: 1024 * 1024,           // 1MB
-                pipeBuffer: 256 * 1024,                  // 256KB
-                flushInterval: 50 * 1024 * 1024),        // 50MB
-
-            _ => (                           // >= 1GB
-                fileStreamBuffer: 4 * 1024 * 1024,       // 4MB
-                pipeBuffer: 512 * 1024,                  // 512KB
-                flushInterval: 100 * 1024 * 1024)        // 100MB
+            < 1 * 1024 * 1024 /* < 1MB */ => targetSize / 4,
+            < 100 * 1024 * 1024 /* < 100MB */ => 10 * 1024 * 1024,
+            < 1024L * 1024 * 1024 /* < 1GB */ => 50 * 1024 * 1024,
+            _ => 100 * 1024 * 1024
         };
     }
 }

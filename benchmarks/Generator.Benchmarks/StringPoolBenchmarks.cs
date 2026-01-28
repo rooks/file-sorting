@@ -5,15 +5,12 @@ namespace FileSorting.Generator.Benchmarks;
 [MemoryDiagnoser]
 public class StringPoolBenchmarks
 {
-    private StringPool _pool = null!;
-
-    [Params(0.0, 0.3, 0.7)]
-    public double DuplicateRatio { get; set; }
+    private DictionaryStringPool _pool = null!;
 
     [GlobalSetup]
     public void Setup()
     {
-        _pool = new StringPool(duplicateRatio: DuplicateRatio, seed: 42);
+        _pool = DictionaryStringPool.CreateDefault(seed: 42);
     }
 
     [Benchmark]

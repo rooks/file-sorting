@@ -6,7 +6,7 @@ namespace FileSorting.Generator.Benchmarks;
 [SimpleJob(launchCount: 1, warmupCount: 3, iterationCount: 5)]
 public class FileGeneratorBenchmarks
 {
-    private StringPool _pool = null!;
+    private DictionaryStringPool _pool = null!;
     private LineGenerator _lineGenerator = null!;
     private FileGenerator _fileGenerator = null!;
     private string _tempDir = null!;
@@ -22,7 +22,7 @@ public class FileGeneratorBenchmarks
         Directory.CreateDirectory(_tempDir);
         _outputFile = Path.Combine(_tempDir, "output.txt");
 
-        _pool = new StringPool(duplicateRatio: 0.3, seed: 42);
+        _pool = DictionaryStringPool.CreateDefault(seed: 42);
         _lineGenerator = new LineGenerator(_pool, seed: 42);
         _fileGenerator = new FileGenerator(_lineGenerator);
     }

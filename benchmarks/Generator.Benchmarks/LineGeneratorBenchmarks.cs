@@ -11,7 +11,7 @@ public class LineGeneratorBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        var pool = new StringPool(duplicateRatio: 0.3, seed: 42);
+        var pool = DictionaryStringPool.CreateDefault(seed: 42);
         _lineGenerator = new LineGenerator(pool, seed: 42);
         _buffer = new byte[1024];
     }

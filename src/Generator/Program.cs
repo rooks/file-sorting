@@ -1,13 +1,12 @@
-﻿using System.CommandLine;
+using System.CommandLine;
 using FileSorting.Generator;
 using FileSorting.Shared;
 
 var sizeOption = new Option<string>("--size") { Description = "Target file size (e.g., 1GB, 500MB, 100KB)" };
 var outputOption = new Option<FileInfo>("--output") { Description = "Output file path" };
-var duplicateRatioOption = new Option<double>("--duplicate-ratio")
+var dictionaryOption = new Option<FileInfo?>("--dictionary")
 {
-    Description = "Ratio of duplicate strings (0.0 to 1.0)",
-    DefaultValueFactory = _ => 0.3
+    Description = "Path to dictionary file (one word/phrase per line). If not specified, uses embedded default dictionary."
 };
 var seedOption = new Option<int?>("--seed") { Description = "Random seed for reproducible output" };
 
@@ -17,7 +16,7 @@ var rootCommand = new RootCommand("Generates test files for the sorting algorith
     {
         sizeOption,
         outputOption,
-        duplicateRatioOption,
+        dictionaryOption,
         seedOption,
     }
 };
@@ -26,7 +25,7 @@ rootCommand.SetAction(async (parseResult, cancellationToken) =>
 {
     var size = parseResult.GetValue(sizeOption);
     var output = parseResult.GetValue(outputOption);
-    var duplicateRatio = parseResult.GetValue(duplicateRatioOption);
+    var dictionary = parseResult.GetValue(dictionaryOption);
     var seed = parseResult.GetValue(seedOption);
 
     if (string.IsNullOrEmpty(size))
@@ -43,9 +42,24 @@ rootCommand.SetAction(async (parseResult, cancellationToken) =>
 
     var targetBytes = SizeParser.Parse(size);
     Console.WriteLine($"Generating {SizeParser.Format(targetBytes)} file: {output.FullName}");
-    Console.WriteLine($"Duplicate ratio: {duplicateRatio:P0}");
 
-    var stringPool = new StringPool(duplicateRatio, seed: seed);
+    DictionaryStringPool stringPool;
+    if (dictionary != null)
+    {
+        if (!dictionary.Exists)
+        {
+            Console.Error.WriteLine($"Error: Dictionary file not found: {dictionary.FullName}");
+            return 1;
+        }
+        Console.WriteLine($"Using dictionary: {dictionary.FullName}");
+        stringPool = DictionaryStringPool.FromFile(dictionary.FullName, seed);
+    }
+    else
+    {
+        Console.WriteLine("Using default dictionary");
+        stringPool = DictionaryStringPool.CreateDefault(seed);
+    }
+
     var lineGenerator = new LineGenerator(stringPool, seed: seed);
 
     var progress = new Progress<long>(bytes =>
