@@ -4,6 +4,7 @@ namespace FileSorting.Generator;
 
 /// <summary>
 /// Generates lines in format "Number. String".
+/// Thread-safe when each thread has its own instance.
 /// </summary>
 public sealed class LineGenerator
 {
@@ -13,6 +14,7 @@ public sealed class LineGenerator
 
     /// <summary>
     /// Generates lines in format "Number. String".
+    /// Each instance should be used by a single thread only.
     /// </summary>
     public LineGenerator(
         DictionaryStringPool stringPool,
@@ -31,7 +33,8 @@ public sealed class LineGenerator
     public int WriteLine(Span<byte> buffer)
     {
         var number = _random.Next(1, _maxNumber + 1);
-        var stringBytes = _stringPool.GetString();
+        var stringIndex = _random.Next(_stringPool.Count);
+        var stringBytes = _stringPool.GetString(stringIndex);
         var written = 0;
 
         // number

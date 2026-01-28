@@ -9,10 +9,10 @@ public class DictionaryStringPoolTests
     [Fact]
     public void CreateDefault_ReturnsWorkingPool()
     {
-        var pool = DictionaryStringPool.CreateDefault(seed: 42);
+        var pool = DictionaryStringPool.CreateDefault();
 
-        var result = pool.GetString();
-
+        Assert.True(pool.Count > 0);
+        var result = pool.GetString(0);
         Assert.NotNull(result);
         Assert.True(result.Length > 0);
     }
@@ -24,13 +24,15 @@ public class DictionaryStringPoolTests
         try
         {
             File.WriteAllLines(tempFile, ["Apple", "Banana", "Cherry"]);
-            var pool = DictionaryStringPool.FromFile(tempFile, seed: 42);
+            var pool = DictionaryStringPool.FromFile(tempFile);
+
+            Assert.Equal(3, pool.Count);
 
             var validWords = new HashSet<string> { "Apple", "Banana", "Cherry" };
 
-            for (var i = 0; i < 100; i++)
+            for (var i = 0; i < pool.Count; i++)
             {
-                var word = Encoding.UTF8.GetString(pool.GetString());
+                var word = Encoding.UTF8.GetString(pool.GetString(i));
                 Assert.Contains(word, validWords);
             }
         }
@@ -41,15 +43,14 @@ public class DictionaryStringPoolTests
     }
 
     [Fact]
-    public void GetString_DeterministicWithSeed()
+    public void GetString_SameIndexReturnsSameWord()
     {
-        var pool1 = DictionaryStringPool.CreateDefault(seed: 123);
-        var pool2 = DictionaryStringPool.CreateDefault(seed: 123);
+        var pool = DictionaryStringPool.CreateDefault();
 
-        for (var i = 0; i < 100; i++)
+        for (var i = 0; i < 10; i++)
         {
-            var word1 = pool1.GetString();
-            var word2 = pool2.GetString();
+            var word1 = pool.GetString(i);
+            var word2 = pool.GetString(i);
             Assert.True(word1.AsSpan().SequenceEqual(word2));
         }
     }
@@ -77,20 +78,15 @@ public class DictionaryStringPoolTests
         try
         {
             File.WriteAllLines(tempFile, ["CustomWord1", "CustomWord2"]);
-            var pool = DictionaryStringPool.FromFile(tempFile, seed: 42);
+            var pool = DictionaryStringPool.FromFile(tempFile);
 
-            var validWords = new HashSet<string> { "CustomWord1", "CustomWord2" };
-            var foundWords = new HashSet<string>();
+            Assert.Equal(2, pool.Count);
 
-            for (var i = 0; i < 100; i++)
-            {
-                var word = Encoding.UTF8.GetString(pool.GetString());
-                Assert.Contains(word, validWords);
-                foundWords.Add(word);
-            }
+            var word1 = Encoding.UTF8.GetString(pool.GetString(0));
+            var word2 = Encoding.UTF8.GetString(pool.GetString(1));
 
-            // Should eventually hit both words
-            Assert.Equal(2, foundWords.Count);
+            Assert.Equal("CustomWord1", word1);
+            Assert.Equal("CustomWord2", word2);
         }
         finally
         {
@@ -99,29 +95,28 @@ public class DictionaryStringPoolTests
     }
 
     [Fact]
-    public void GetString_FrequencyControlledByRepeatedEntries()
+    public void FromFile_RepeatedEntriesIncludedInCount()
     {
         var tempFile = Path.GetTempFileName();
         try
         {
             // Apple appears 3 times, Banana appears 1 time
             File.WriteAllLines(tempFile, ["Apple", "Apple", "Apple", "Banana"]);
-            var pool = DictionaryStringPool.FromFile(tempFile, seed: 42);
+            var pool = DictionaryStringPool.FromFile(tempFile);
 
-            var appleCount = 0;
-            var bananaCount = 0;
-            const int iterations = 10000;
+            // All entries are included, so Count is 4
+            Assert.Equal(4, pool.Count);
 
-            for (var i = 0; i < iterations; i++)
+            // First 3 entries should be "Apple"
+            for (var i = 0; i < 3; i++)
             {
-                var word = Encoding.UTF8.GetString(pool.GetString());
-                if (word == "Apple") appleCount++;
-                else if (word == "Banana") bananaCount++;
+                var word = Encoding.UTF8.GetString(pool.GetString(i));
+                Assert.Equal("Apple", word);
             }
 
-            // Apple should appear roughly 3x more often than Banana
-            var ratio = (double)appleCount / bananaCount;
-            Assert.InRange(ratio, 2.0, 4.0); // Allow some variance
+            // Last entry should be "Banana"
+            var lastWord = Encoding.UTF8.GetString(pool.GetString(3));
+            Assert.Equal("Banana", lastWord);
         }
         finally
         {

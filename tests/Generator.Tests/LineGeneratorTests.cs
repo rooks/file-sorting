@@ -9,7 +9,7 @@ public class LineGeneratorTests
     [Fact]
     public void WriteLine_ProducesValidFormat()
     {
-        var pool = DictionaryStringPool.CreateDefault(seed: 42);
+        var pool = DictionaryStringPool.CreateDefault();
         var generator = new LineGenerator(pool, seed: 42);
 
         var buffer = new byte[1024];
@@ -32,7 +32,7 @@ public class LineGeneratorTests
     [Fact]
     public void WriteLine_GeneratesNumbersInRange()
     {
-        var pool = DictionaryStringPool.CreateDefault(seed: 42);
+        var pool = DictionaryStringPool.CreateDefault();
         var generator = new LineGenerator(pool, maxNumber: 100, seed: 42);
 
         var buffer = new byte[1024];
@@ -49,11 +49,9 @@ public class LineGeneratorTests
     [Fact]
     public void WriteLine_DeterministicWithSeed()
     {
-        var pool1 = DictionaryStringPool.CreateDefault(seed: 123);
-        var gen1 = new LineGenerator(pool1, seed: 123);
-
-        var pool2 = DictionaryStringPool.CreateDefault(seed: 123);
-        var gen2 = new LineGenerator(pool2, seed: 123);
+        var pool = DictionaryStringPool.CreateDefault();
+        var gen1 = new LineGenerator(pool, seed: 123);
+        var gen2 = new LineGenerator(pool, seed: 123);
 
         var buffer1 = new byte[1024];
         var buffer2 = new byte[1024];

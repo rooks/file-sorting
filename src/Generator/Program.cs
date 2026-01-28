@@ -52,15 +52,16 @@ rootCommand.SetAction(async (parseResult, cancellationToken) =>
             return 1;
         }
         Console.WriteLine($"Using dictionary: {dictionary.FullName}");
-        stringPool = DictionaryStringPool.FromFile(dictionary.FullName, seed);
+        stringPool = DictionaryStringPool.FromFile(dictionary.FullName);
     }
     else
     {
         Console.WriteLine("Using default dictionary");
-        stringPool = DictionaryStringPool.CreateDefault(seed);
+        stringPool = DictionaryStringPool.CreateDefault();
     }
 
-    var lineGenerator = new LineGenerator(stringPool, seed: seed);
+    var workerCount = Environment.ProcessorCount;
+    Console.WriteLine($"Using {workerCount} parallel workers");
 
     var progress = new Progress<long>(bytes =>
     {
@@ -68,13 +69,13 @@ rootCommand.SetAction(async (parseResult, cancellationToken) =>
         Console.Write($"\rProgress: {SizeParser.Format(bytes)} / {SizeParser.Format(targetBytes)} ({percent:F1}%)");
     });
 
-    var fileGenerator = new FileGenerator(lineGenerator, progress);
+    var fileGenerator = new ParallelFileGenerator(stringPool, workerCount, progress);
 
     var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
     try
     {
-        await fileGenerator.GenerateAsync(output.FullName, targetBytes, cancellationToken);
+        await fileGenerator.GenerateAsync(output.FullName, targetBytes, seed, cancellationToken);
         stopwatch.Stop();
 
         Console.WriteLine();

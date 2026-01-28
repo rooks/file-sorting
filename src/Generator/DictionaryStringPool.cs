@@ -3,44 +3,42 @@ using System.Text;
 namespace FileSorting.Generator;
 
 /// <summary>
-/// String pool that selects strings from a pre-loaded dictionary.
-/// Uses a single Random.Next() call per string selection.
-/// Frequency is controlled by repeated entries in the dictionary.
+/// Thread-safe string pool that provides strings from a pre-loaded dictionary.
+/// Designed to be shared across multiple threads as read-only.
 /// </summary>
 public sealed class DictionaryStringPool
 {
     private readonly byte[][] _words;
-    private readonly Random _random;
 
-    private DictionaryStringPool(byte[][] words, int? seed)
+    private DictionaryStringPool(byte[][] words)
     {
         _words = words;
-        _random = seed.HasValue ? new Random(seed.Value) : new Random();
     }
 
     /// <summary>
-    /// Gets a random string from the dictionary as UTF-8 bytes.
+    /// Gets the number of words in the pool.
     /// </summary>
-    public byte[] GetString()
-    {
-        var index = _random.Next(_words.Length);
-        return _words[index];
-    }
+    public int Count => _words.Length;
+
+    /// <summary>
+    /// Gets a string at the specified index as UTF-8 bytes.
+    /// </summary>
+    public byte[] GetString(int index) => _words[index];
 
     /// <summary>
     /// Creates a DictionaryStringPool with the default embedded dictionary.
     /// </summary>
-    public static DictionaryStringPool CreateDefault(int? seed = null)
+    public static DictionaryStringPool CreateDefault()
     {
         var words = DefaultWords.Select(w => Encoding.UTF8.GetBytes(w)).ToArray();
-        return new DictionaryStringPool(words, seed);
+        return new DictionaryStringPool(words);
     }
 
     /// <summary>
     /// Creates a DictionaryStringPool from a dictionary file.
     /// Empty lines are skipped and whitespace is trimmed.
     /// </summary>
-    public static DictionaryStringPool FromFile(string path, int? seed = null)
+    public static DictionaryStringPool FromFile(string path)
     {
         var lines = File.ReadAllLines(path);
         var words = lines
@@ -50,7 +48,7 @@ public sealed class DictionaryStringPool
 
         return words.Length == 0
             ? throw new InvalidOperationException($"Dictionary file '{path}' contains no valid entries")
-            : new DictionaryStringPool(words, seed);
+            : new DictionaryStringPool(words);
     }
 
     // Default word list - common English words for test data generation
