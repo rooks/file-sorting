@@ -1,5 +1,4 @@
 using System.Buffers;
-using FileSorting.Shared;
 
 namespace FileSorting.Sorter;
 

@@ -1,6 +1,6 @@
 using System.Buffers.Text;
 
-namespace FileSorting.Shared;
+namespace FileSorting.Sorter;
 
 /// <summary>
 /// Represents a parsed line in format "Number. String" with zero-allocation access to parts.

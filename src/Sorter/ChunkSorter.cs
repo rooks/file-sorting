@@ -1,5 +1,3 @@
-using FileSorting.Shared;
-
 namespace FileSorting.Sorter;
 
 /// <summary>

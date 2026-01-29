@@ -3,10 +3,6 @@ using System.Threading.Channels;
 
 namespace FileSorting.Generator;
 
-/// <summary>
-/// High-performance parallel file generator using multiple worker threads.
-/// Each worker generates chunks independently, which are then written sequentially.
-/// </summary>
 public sealed class ParallelFileGenerator
 {
     private const int ChunkSize = 1 * 1024 * 1024; // 1MB chunks
@@ -33,37 +29,32 @@ public sealed class ParallelFileGenerator
         int? seed = null,
         CancellationToken ct = default)
     {
-        // Bounded channel to limit memory usage - workers wait if writer is slow
-        var channel = Channel.CreateBounded<ChunkData>(new BoundedChannelOptions(_workerCount * 2)
+        var opts = new BoundedChannelOptions(_workerCount * 2)
         {
             SingleWriter = false,
             SingleReader = true,
             FullMode = BoundedChannelFullMode.Wait
-        });
+        };
+        var channel = Channel.CreateBounded<ChunkData>(opts);
 
-        // Distribute work across workers
         var bytesPerWorker = targetSize / _workerCount;
         var remainder = targetSize % _workerCount;
 
-        // Start workers
+        // start workers
         var workers = new Task[_workerCount];
         for (var i = 0; i < _workerCount; i++)
         {
-            // Last worker handles the remainder
+            // last worker handles the remainder
             var workerBytes = bytesPerWorker + (i == _workerCount - 1 ? remainder : 0);
-            // Each worker gets a unique seed derived from the base seed
             var workerSeed = seed + i;
             workers[i] = GenerateChunksAsync(channel.Writer, workerBytes, workerSeed, ct);
         }
 
-        // Start single writer
         var writer = WriteChunksAsync(outputPath, channel.Reader, targetSize, ct);
 
-        // Wait for all workers to complete, then signal channel completion
         await Task.WhenAll(workers);
         channel.Writer.Complete();
 
-        // Wait for writer to finish
         await writer;
     }
 
@@ -121,14 +112,11 @@ public sealed class ParallelFileGenerator
 
         await foreach (var chunk in reader.ReadAllAsync(ct))
         {
-            // Write chunk to file
             await fileStream.WriteAsync(chunk.Buffer.AsMemory(0, chunk.Length), ct);
             bytesWritten += chunk.Length;
 
-            // Return buffer to pool
             ArrayPool<byte>.Shared.Return(chunk.Buffer);
 
-            // Report progress periodically
             if (bytesWritten - lastReported >= reportInterval)
             {
                 _progress?.Report(bytesWritten);

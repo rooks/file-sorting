@@ -1,14 +1,10 @@
 namespace FileSorting.Sorter;
 
-/// <summary>
-/// Manages temporary files for the external merge sort.
-/// </summary>
 public sealed class TempFileManager : IDisposable
 {
     private readonly string _tempDir;
     private readonly List<string> _tempFiles = [];
     private int _nextChunkId;
-    private bool _disposed;
 
     public TempFileManager(string? tempDir = null)
     {
@@ -30,9 +26,7 @@ public sealed class TempFileManager : IDisposable
         return path;
     }
 
-    public IReadOnlyList<string> TempFiles => _tempFiles;
-
-    public void Cleanup()
+    public void Dispose()
     {
         foreach (var file in _tempFiles)
         {
@@ -43,10 +37,9 @@ public sealed class TempFileManager : IDisposable
             }
             catch
             {
-                // Best effort cleanup
+                // best effort cleanup
             }
         }
-        _tempFiles.Clear();
 
         try
         {
@@ -55,14 +48,7 @@ public sealed class TempFileManager : IDisposable
         }
         catch
         {
-            // Best effort cleanup
+            // best effort cleanup
         }
-    }
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        Cleanup();
     }
 }

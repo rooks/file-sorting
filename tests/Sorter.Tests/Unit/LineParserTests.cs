@@ -1,8 +1,8 @@
 using System.Text;
-using FileSorting.Shared;
+using FileSorting.Sorter;
 using Xunit;
 
-namespace FileSorting.Shared.Tests;
+namespace FileSorting.Sorter.Tests.Unit;
 
 public class LineParserTests
 {

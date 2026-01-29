@@ -66,7 +66,7 @@ public static class SizeParser
     public static string Format(long bytes)
     {
         var index = 0;
-        double value = bytes;
+        var value = (double)bytes;
 
         while (value >= 1024 && index < Suffixes.Length - 1)
         {

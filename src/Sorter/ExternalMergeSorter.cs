@@ -1,67 +1,50 @@
 using System.Threading.Channels;
-using FileSorting.Shared;
 
 namespace FileSorting.Sorter;
 
 /// <summary>
 /// Main external merge sort orchestrator.
 /// </summary>
-public sealed class ExternalMergeSorter
+public sealed class ExternalMergeSorter(
+    SorterOptions options,
+    IProgress<SortProgress>? progress = null)
 {
-    private readonly SorterOptions _options;
-    private readonly IProgress<SortProgress>? _progress;
-
-    public ExternalMergeSorter(SorterOptions options, IProgress<SortProgress>? progress = null)
-    {
-        _options = options;
-        _progress = progress;
-    }
-
     public async Task SortAsync(string inputPath, string outputPath, CancellationToken cancellationToken = default)
     {
-        using var tempManager = new TempFileManager(_options.TempDirectory);
+        using var tempManager = new TempFileManager(options.TempDirectory);
 
-        try
+        // Phase 1: Read and sort chunks
+        var chunkFiles = await SortChunksAsync(inputPath, tempManager, cancellationToken);
+        if (chunkFiles.Count == 0) // empty
         {
-            // Phase 1: Read and sort chunks
-            var chunkFiles = await SortChunksAsync(inputPath, tempManager, cancellationToken);
-
-            if (chunkFiles.Count == 0)
-            {
-                // Empty file
-                await File.WriteAllTextAsync(outputPath, "", cancellationToken);
-                return;
-            }
-
-            _progress?.Report(new SortProgress(SortPhase.Merging, 0, chunkFiles.Count));
-
-            // Phase 2: Merge chunks
-            var merger = new KWayMerger();
-
-            if (chunkFiles.Count <= Constants.MergeWidth)
-            {
-                // Single-pass merge directly to output
-                await merger.MergeAsync(chunkFiles, outputPath, cancellationToken);
-            }
-            else
-            {
-                // Multi-pass merge
-                var finalTemp = await merger.MultiPassMergeAsync(
-                    chunkFiles,
-                    Constants.MergeWidth,
-                    tempManager,
-                    cancellationToken);
-
-                // Move final result to output
-                File.Move(finalTemp, outputPath, overwrite: true);
-            }
-
-            _progress?.Report(new SortProgress(SortPhase.Completed, chunkFiles.Count, chunkFiles.Count));
+            await File.WriteAllTextAsync(outputPath, "", cancellationToken);
+            return;
         }
-        finally
+
+        progress?.Report(new SortProgress(SortPhase.Merging, 0, chunkFiles.Count));
+
+        // Phase 2: Merge chunks
+        var merger = new KWayMerger();
+
+        if (chunkFiles.Count <= Constants.MergeWidth)
         {
-            tempManager.Cleanup();
+            // Single-pass merge directly to output
+            await merger.MergeAsync(chunkFiles, outputPath, cancellationToken);
         }
+        else
+        {
+            // Multi-pass merge
+            var finalTemp = await merger.MultiPassMergeAsync(
+                chunkFiles,
+                Constants.MergeWidth,
+                tempManager,
+                cancellationToken);
+
+            // Move final result to output
+            File.Move(finalTemp, outputPath, overwrite: true);
+        }
+
+        progress?.Report(new SortProgress(SortPhase.Completed, chunkFiles.Count, chunkFiles.Count));
     }
 
     private async Task<List<string>> SortChunksAsync(
@@ -73,29 +56,29 @@ public sealed class ExternalMergeSorter
         var fileInfo = new FileInfo(inputPath);
         var totalSize = fileInfo.Length;
 
-        _progress?.Report(new SortProgress(SortPhase.Chunking, 0, totalSize));
+        progress?.Report(new SortProgress(SortPhase.Chunking, 0, totalSize));
 
         // Use a channel for producer-consumer pattern
         var channel = Channel.CreateBounded<(Memory<byte> Chunk, string OutputPath)>(
-            new BoundedChannelOptions(_options.ParallelDegree)
+            new BoundedChannelOptions(options.ParallelDegree)
             {
                 FullMode = BoundedChannelFullMode.Wait
             });
 
         // Start consumer tasks
-        var consumers = Enumerable.Range(0, _options.ParallelDegree)
+        var consumers = Enumerable.Range(0, options.ParallelDegree)
             .Select(_ => ProcessChunksAsync(channel.Reader, cancellationToken))
             .ToArray();
 
         // Producer: read chunks and send to channel
         using var reader = new ChunkReader(inputPath);
-        long bytesRead = 0;
+        var bytesRead = 0L;
 
         while (!reader.IsCompleted)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var chunk = await reader.ReadChunkAsync(_options.ChunkSize, cancellationToken);
+            var chunk = await reader.ReadChunkAsync(options.ChunkSize, cancellationToken);
             if (!chunk.HasValue || chunk.Value.Length == 0)
                 break;
 
@@ -105,7 +88,7 @@ public sealed class ExternalMergeSorter
             await channel.Writer.WriteAsync((chunk.Value, outputPath), cancellationToken);
 
             bytesRead += chunk.Value.Length;
-            _progress?.Report(new SortProgress(SortPhase.Chunking, bytesRead, totalSize));
+            progress?.Report(new SortProgress(SortPhase.Chunking, bytesRead, totalSize));
         }
 
         channel.Writer.Complete();
@@ -130,18 +113,9 @@ public sealed class ExternalMergeSorter
 
 public sealed class SorterOptions
 {
-    public int ChunkSize { get; init; } = CalculateDefaultChunkSize();
-    public int ParallelDegree { get; init; } = Environment.ProcessorCount;
+    public int ChunkSize { get; init; }
+    public int ParallelDegree { get; init; }
     public string? TempDirectory { get; init; }
-
-    private static int CalculateDefaultChunkSize()
-    {
-        // Use ~60% of available memory divided by number of cores
-        var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
-        var memoryPerCore = (long)(availableMemory * Constants.MemoryUsageRatio / Environment.ProcessorCount);
-
-        return (int)Math.Clamp(memoryPerCore, Constants.MinChunkSize, Constants.MaxChunkSize);
-    }
 }
 
 public enum SortPhase
@@ -151,18 +125,11 @@ public enum SortPhase
     Completed
 }
 
-public readonly struct SortProgress
+public readonly struct SortProgress(SortPhase phase, long current, long total)
 {
-    public SortPhase Phase { get; }
-    public long Current { get; }
-    public long Total { get; }
-
-    public SortProgress(SortPhase phase, long current, long total)
-    {
-        Phase = phase;
-        Current = current;
-        Total = total;
-    }
+    public SortPhase Phase { get; } = phase;
+    public long Current { get; } = current;
+    public long Total { get; } = total;
 
     public double Percentage => Total > 0 ? (double)Current / Total * 100 : 0;
 }

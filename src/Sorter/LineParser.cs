@@ -1,4 +1,4 @@
-namespace FileSorting.Shared;
+namespace FileSorting.Sorter;
 
 /// <summary>
 /// Parses lines in format "Number. String" from byte buffers.

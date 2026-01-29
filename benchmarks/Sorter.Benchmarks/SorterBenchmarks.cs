@@ -27,10 +27,9 @@ public class SorterBenchmarks
         _outputFile = Path.Combine(_tempDir, "output.txt");
 
         // Generate test file
-        var pool = DictionaryStringPool.CreateDefault(seed: 42);
-        var lineGen = new LineGenerator(pool, seed: 42);
-        var fileGen = new FileGenerator(lineGen);
-        fileGen.GenerateAsync(_inputFile, FileSize).GetAwaiter().GetResult();
+        var pool = DictionaryStringPool.CreateDefault();
+        var fileGen = new ParallelFileGenerator(pool);
+        fileGen.GenerateAsync(_inputFile, FileSize, seed: 42).GetAwaiter().GetResult();
     }
 
     [GlobalCleanup]

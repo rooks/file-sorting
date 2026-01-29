@@ -38,9 +38,18 @@ rootCommand.SetAction(async (parseResult, cancellationToken) =>
     var options = new SorterOptions
     {
         TempDirectory = tempDir?.FullName,
-        ChunkSize = chunkSizeStr != null ? (int)SizeParser.Parse(chunkSizeStr) : new SorterOptions().ChunkSize,
+        ChunkSize = chunkSizeStr != null ? (int)SizeParser.Parse(chunkSizeStr) : CalculateDefaultChunkSize(),
         ParallelDegree = parallel ?? Environment.ProcessorCount
     };
+
+    static int CalculateDefaultChunkSize()
+    {
+        // Use ~60% of available memory divided by number of cores
+        var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+        var memoryPerCore = (long)(availableMemory * Constants.MemoryUsageRatio / Environment.ProcessorCount);
+
+        return (int)Math.Clamp(memoryPerCore, Constants.MinChunkSize, Constants.MaxChunkSize);
+    }
 
     Console.WriteLine($"Sorting: {input.FullName}");
     Console.WriteLine($"Output: {output.FullName}");

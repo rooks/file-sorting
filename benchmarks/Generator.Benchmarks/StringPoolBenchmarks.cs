@@ -6,17 +6,19 @@ namespace FileSorting.Generator.Benchmarks;
 public class StringPoolBenchmarks
 {
     private DictionaryStringPool _pool = null!;
+    private int _poolCount;
 
     [GlobalSetup]
     public void Setup()
     {
-        _pool = DictionaryStringPool.CreateDefault(seed: 42);
+        _pool = DictionaryStringPool.CreateDefault();
+        _poolCount = _pool.Count;
     }
 
     [Benchmark]
     public byte[] GetString()
     {
-        return _pool.GetString();
+        return _pool.GetString(0);
     }
 
     [Benchmark(OperationsPerInvoke = 1000)]
@@ -25,7 +27,7 @@ public class StringPoolBenchmarks
         var totalLength = 0;
         for (var i = 0; i < 1000; i++)
         {
-            totalLength += _pool.GetString().Length;
+            totalLength += _pool.GetString(i % _poolCount).Length;
         }
         return totalLength;
     }

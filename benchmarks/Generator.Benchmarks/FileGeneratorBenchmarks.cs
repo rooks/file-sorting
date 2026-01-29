@@ -7,8 +7,7 @@ namespace FileSorting.Generator.Benchmarks;
 public class FileGeneratorBenchmarks
 {
     private DictionaryStringPool _pool = null!;
-    private LineGenerator _lineGenerator = null!;
-    private FileGenerator _fileGenerator = null!;
+    private ParallelFileGenerator _fileGenerator = null!;
     private string _tempDir = null!;
     private string _outputFile = null!;
 
@@ -22,9 +21,8 @@ public class FileGeneratorBenchmarks
         Directory.CreateDirectory(_tempDir);
         _outputFile = Path.Combine(_tempDir, "output.txt");
 
-        _pool = DictionaryStringPool.CreateDefault(seed: 42);
-        _lineGenerator = new LineGenerator(_pool, seed: 42);
-        _fileGenerator = new FileGenerator(_lineGenerator);
+        _pool = DictionaryStringPool.CreateDefault();
+        _fileGenerator = new ParallelFileGenerator(_pool);
     }
 
     [GlobalCleanup]
@@ -39,6 +37,6 @@ public class FileGeneratorBenchmarks
     [Benchmark]
     public Task GenerateFile()
     {
-        return _fileGenerator.GenerateAsync(_outputFile, FileSize);
+        return _fileGenerator.GenerateAsync(_outputFile, FileSize, seed: 42);
     }
 }
