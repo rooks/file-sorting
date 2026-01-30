@@ -32,8 +32,11 @@ public sealed class LineGenerator
     /// </summary>
     public int WriteLine(Span<byte> buffer)
     {
-        var number = _random.Next(1, _maxNumber + 1);
-        var stringIndex = _random.Next(_stringPool.Count);
+        // perf: single RNG call - [number, stringIndex]
+        var rng = _random.NextInt64();
+        var number = (int)((rng & 0x7FFFFFFF) % _maxNumber) + 1;
+        var stringIndex = (int)((rng >> 32) % _stringPool.Count);
+
         var stringBytes = _stringPool.GetString(stringIndex);
         var written = 0;
 
