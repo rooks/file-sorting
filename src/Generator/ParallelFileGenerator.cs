@@ -3,25 +3,16 @@ using System.Threading.Channels;
 
 namespace FileSorting.Generator;
 
-public sealed class ParallelFileGenerator
+public sealed class ParallelFileGenerator(
+    DictionaryStringPool stringPool,
+    int workerCount,
+    IProgress<long>? progress = null)
 {
+    private readonly record struct ChunkData(byte[] Buffer, int Length);
+
     private const int ChunkSize = 1 * 1024 * 1024; // 1MB chunks
     private const int FileStreamBuffer = 16 * 1024 * 1024; // 16MB
     private const int MaxLineSize = 1024;
-
-    private readonly DictionaryStringPool _stringPool;
-    private readonly int _workerCount;
-    private readonly IProgress<long>? _progress;
-
-    public ParallelFileGenerator(
-        DictionaryStringPool stringPool,
-        int? workerCount = null,
-        IProgress<long>? progress = null)
-    {
-        _stringPool = stringPool;
-        _workerCount = workerCount ?? Environment.ProcessorCount;
-        _progress = progress;
-    }
 
     public async Task GenerateAsync(
         string outputPath,
@@ -29,7 +20,7 @@ public sealed class ParallelFileGenerator
         int? seed = null,
         CancellationToken ct = default)
     {
-        var opts = new BoundedChannelOptions(_workerCount * 2)
+        var opts = new BoundedChannelOptions(workerCount * 2)
         {
             SingleWriter = false,
             SingleReader = true,
@@ -37,15 +28,15 @@ public sealed class ParallelFileGenerator
         };
         var channel = Channel.CreateBounded<ChunkData>(opts);
 
-        var bytesPerWorker = targetSize / _workerCount;
-        var remainder = targetSize % _workerCount;
+        var bytesPerWorker = targetSize / workerCount;
+        var remainder = targetSize % workerCount;
 
         // start workers
-        var workers = new Task[_workerCount];
-        for (var i = 0; i < _workerCount; i++)
+        var workers = new Task[workerCount];
+        for (var i = 0; i < workerCount; i++)
         {
             // last worker handles the remainder
-            var workerBytes = bytesPerWorker + (i == _workerCount - 1 ? remainder : 0);
+            var workerBytes = bytesPerWorker + (i == workerCount - 1 ? remainder : 0);
             var workerSeed = seed + i;
             workers[i] = GenerateChunksAsync(channel.Writer, workerBytes, workerSeed, ct);
         }
@@ -64,18 +55,15 @@ public sealed class ParallelFileGenerator
         int? seed,
         CancellationToken ct)
     {
-        var lineGenerator = new LineGenerator(_stringPool, seed: seed);
+        var lineGenerator = new LineGenerator(stringPool, seed: seed);
         var bytesGenerated = 0L;
 
         while (bytesGenerated < targetBytes)
         {
             ct.ThrowIfCancellationRequested();
 
-            // Rent a buffer from the pool
             var buffer = ArrayPool<byte>.Shared.Rent(ChunkSize);
             var offset = 0;
-
-            // Fill the buffer with lines
             var remainingBytes = targetBytes - bytesGenerated;
             var chunkTarget = (int)Math.Min(ChunkSize - MaxLineSize, remainingBytes);
 
@@ -87,7 +75,6 @@ public sealed class ParallelFileGenerator
 
             bytesGenerated += offset;
 
-            // Send chunk to writer
             await writer.WriteAsync(new ChunkData(buffer, offset), ct);
         }
     }
@@ -119,12 +106,12 @@ public sealed class ParallelFileGenerator
 
             if (bytesWritten - lastReported >= reportInterval)
             {
-                _progress?.Report(bytesWritten);
+                progress?.Report(bytesWritten);
                 lastReported = bytesWritten;
             }
         }
 
-        _progress?.Report(bytesWritten);
+        progress?.Report(bytesWritten);
     }
 
     private static long GetReportInterval(long targetSize)
@@ -137,6 +124,4 @@ public sealed class ParallelFileGenerator
             _ => 100 * 1024 * 1024
         };
     }
-
-    private readonly record struct ChunkData(byte[] Buffer, int Length);
 }

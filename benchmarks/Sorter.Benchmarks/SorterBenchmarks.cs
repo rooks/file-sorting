@@ -28,7 +28,7 @@ public class SorterBenchmarks
 
         // Generate test file
         var pool = DictionaryStringPool.CreateDefault();
-        var fileGen = new ParallelFileGenerator(pool);
+        var fileGen = new ParallelFileGenerator(pool, Environment.ProcessorCount);
         fileGen.GenerateAsync(_inputFile, FileSize, seed: 42).GetAwaiter().GetResult();
     }
 

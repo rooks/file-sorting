@@ -22,7 +22,7 @@ public class FileGeneratorBenchmarks
         _outputFile = Path.Combine(_tempDir, "output.txt");
 
         _pool = DictionaryStringPool.CreateDefault();
-        _fileGenerator = new ParallelFileGenerator(_pool);
+        _fileGenerator = new ParallelFileGenerator(_pool, Environment.ProcessorCount);
     }
 
     [GlobalCleanup]
