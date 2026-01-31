@@ -5,11 +5,12 @@ using Spectre.Console.Cli;
 
 namespace FileSorting.Generator;
 
-public sealed class GenerateCommand : AsyncCommand<GeneratorSettings>
+public sealed class GenerateCommand : CancellableAsyncCommand<GeneratorSettings>
 {
-    public static CancellationToken CancellationToken { get; set; }
-
-    public override async Task<int> ExecuteAsync(CommandContext context, GeneratorSettings settings)
+    public override async Task<int> ExecuteAsync(
+        CommandContext context,
+        GeneratorSettings settings,
+        CancellationToken ct)
     {
         var targetBytes = SizeParser.Parse(settings.Size!);
 
@@ -54,7 +55,7 @@ public sealed class GenerateCommand : AsyncCommand<GeneratorSettings>
                     });
 
                     var fileGenerator = new ParallelFileGenerator(stringPool, workerCount, progress);
-                    await fileGenerator.GenerateAsync(settings.Output!, targetBytes, settings.Seed, CancellationToken);
+                    await fileGenerator.GenerateAsync(settings.Output!, targetBytes, settings.Seed, ct);
 
                     task.Value = targetBytes;
                 });

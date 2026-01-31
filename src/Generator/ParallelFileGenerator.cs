@@ -31,7 +31,6 @@ public sealed class ParallelFileGenerator(
         var bytesPerWorker = targetSize / workerCount;
         var remainder = targetSize % workerCount;
 
-        // start workers
         var workers = new Task[workerCount];
         for (var i = 0; i < workerCount; i++)
         {

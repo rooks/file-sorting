@@ -5,18 +5,15 @@ using Spectre.Console.Cli;
 
 namespace FileSorting.Sorter;
 
-public sealed class SortCommand : AsyncCommand<SorterSettings>
+public sealed class SortCommand : CancellableAsyncCommand<SorterSettings>
 {
-    public static CancellationToken CancellationToken { get; set; }
-
-    public override async Task<int> ExecuteAsync(CommandContext context, SorterSettings settings)
+    public override async Task<int> ExecuteAsync(CommandContext context, SorterSettings settings, CancellationToken ct)
     {
         var inputInfo = new FileInfo(settings.Input!);
-
         var options = new SorterOptions
         {
             TempDirectory = settings.TempDir,
-            ChunkSize = settings.ChunkSize != null ? (int)SizeParser.Parse(settings.ChunkSize) : CalculateDefaultChunkSize(),
+            ChunkSize = GetChunkSize(settings.ChunkSize),
             ParallelDegree = settings.Parallel ?? Environment.ProcessorCount
         };
 
@@ -53,11 +50,16 @@ public sealed class SortCommand : AsyncCommand<SorterSettings>
                         }
                         else if (p.Phase == SortPhase.Merging)
                         {
-                            if (chunkingTask != null && !chunkingTask.IsFinished)
+                            if (mergingTask == null)
                             {
-                                chunkingTask.Value = chunkingTask.MaxValue;
+                                if (chunkingTask != null)
+                                {
+                                    if (!chunkingTask.IsFinished)
+                                        chunkingTask.Value = chunkingTask.MaxValue;
+                                    chunkingTask.StopTask();
+                                }
+                                mergingTask = ctx.AddTask("[green]Merging[/]", maxValue: p.Total);
                             }
-                            mergingTask ??= ctx.AddTask("[green]Merging[/]", maxValue: p.Total);
                             mergingTask.Value = p.Current;
                         }
                         else if (p.Phase == SortPhase.Completed)
@@ -65,12 +67,13 @@ public sealed class SortCommand : AsyncCommand<SorterSettings>
                             if (mergingTask != null)
                             {
                                 mergingTask.Value = mergingTask.MaxValue;
+                                mergingTask.StopTask();
                             }
                         }
                     });
 
                     var sorter = new ExternalMergeSorter(options, progress);
-                    await sorter.SortAsync(inputInfo.FullName, settings.Output!, CancellationToken);
+                    await sorter.SortAsync(inputInfo.FullName, settings.Output!, ct);
                 });
 
             stopwatch.Stop();
@@ -94,8 +97,11 @@ public sealed class SortCommand : AsyncCommand<SorterSettings>
         }
     }
 
-    private static int CalculateDefaultChunkSize()
+    private static int GetChunkSize(string? size)
     {
+        if (!string.IsNullOrEmpty(size))
+            return (int)SizeParser.Parse(size);
+
         var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
         var memoryPerCore = (long)(availableMemory * Constants.MemoryUsageRatio / Environment.ProcessorCount);
 
