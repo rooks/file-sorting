@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using FileSorting.Shared;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -29,24 +30,28 @@ public sealed class SorterSettings : CommandSettings
     public override ValidationResult Validate()
     {
         if (string.IsNullOrWhiteSpace(Input))
-        {
             return ValidationResult.Error("--input is required");
-        }
 
         if (!File.Exists(Input))
-        {
             return ValidationResult.Error($"Input file not found: {Input}");
-        }
 
         if (string.IsNullOrWhiteSpace(Output))
-        {
             return ValidationResult.Error("--output is required");
+
+        if (!string.IsNullOrWhiteSpace(ChunkSize))
+        {
+            if (!SizeParser.TryParse(ChunkSize, out var chunkBytes))
+                return ValidationResult.Error("--chunk-size must be a valid size (e.g., 64MB, 128MB)");
+
+            if (chunkBytes < Constants.MinChunkSize)
+                return ValidationResult.Error($"--chunk-size must be at least {Constants.MinChunkSize / (1024 * 1024)}MB");
+
+            if (chunkBytes > Constants.MaxChunkSize)
+                return ValidationResult.Error($"--chunk-size cannot exceed {Constants.MaxChunkSize / (1024 * 1024)}MB");
         }
 
-        if (TempDir != null && !Directory.Exists(TempDir))
-        {
-            return ValidationResult.Error($"Temp directory not found: {TempDir}");
-        }
+        if (Parallel.HasValue && Parallel.Value <= 0)
+            return ValidationResult.Error("--parallel must be a positive integer");
 
         return ValidationResult.Success();
     }

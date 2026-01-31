@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using FileSorting.Shared;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -26,6 +27,13 @@ public sealed class GeneratorSettings : CommandSettings
     {
         if (string.IsNullOrWhiteSpace(Size))
             return ValidationResult.Error("--size is required");
+
+        if (!SizeParser.TryParse(Size, out var sizeBytes) || sizeBytes <= 0)
+            return ValidationResult.Error("--size must be a valid positive size (e.g., 50MB, 1GB)");
+
+        const long maxFileSize = 1L * 1024 * 1024 * 1024 * 1024;
+        if (sizeBytes > maxFileSize)
+            return ValidationResult.Error("--size cannot exceed 1TB");
 
         if (string.IsNullOrWhiteSpace(Output))
             return ValidationResult.Error("--output is required");
