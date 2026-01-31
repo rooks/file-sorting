@@ -31,14 +31,14 @@ public sealed class SortCommand : AsyncCommand<SorterSettings>
         try
         {
             await AnsiConsole.Progress()
-                .AutoClear(false)
-                .HideCompleted(false)
+                .AutoClear(true)
+                .HideCompleted(true)
                 .Columns(
                     new TaskDescriptionColumn(),
                     new ProgressBarColumn(),
                     new PercentageColumn(),
-                    new RemainingTimeColumn(),
-                    new SpinnerColumn())
+                    new ElapsedTimeColumn()
+                )
                 .StartAsync(async ctx =>
                 {
                     ProgressTask? chunkingTask = null;

@@ -36,8 +36,8 @@ public sealed class GenerateCommand : AsyncCommand<GeneratorSettings>
         try
         {
             await AnsiConsole.Progress()
-                .AutoClear(false)
-                .HideCompleted(false)
+                .AutoClear(true)
+                .HideCompleted(true)
                 .Columns(
                     new TaskDescriptionColumn(),
                     new ProgressBarColumn(),
