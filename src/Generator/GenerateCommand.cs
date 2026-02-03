@@ -29,9 +29,6 @@ public sealed class GenerateCommand : CancellableAsyncCommand<GeneratorSettings>
             stringPool = DictionaryStringPool.CreateDefault();
         }
 
-        var workerCount = Environment.ProcessorCount;
-        AnsiConsole.MarkupLine($"[blue]Workers:[/] {workerCount}");
-
         var stopwatch = Stopwatch.StartNew();
 
         try
@@ -54,7 +51,7 @@ public sealed class GenerateCommand : CancellableAsyncCommand<GeneratorSettings>
                         task.Value = bytes;
                     });
 
-                    var fileGenerator = new ParallelFileGenerator(stringPool, workerCount, progress);
+                    var fileGenerator = new ParallelFileGenerator(stringPool, progress);
                     await fileGenerator.GenerateAsync(settings.Output!, targetBytes, settings.Seed, ct);
 
                     task.Value = targetBytes;

@@ -15,7 +15,7 @@ public static class LineParser
     public static ParsedLine Parse(Memory<byte> buffer)
     {
         var span = buffer.Span;
-        int separatorIndex = span.IndexOf(Separator);
+        var separatorIndex = span.IndexOf(Separator);
 
         if (separatorIndex < 0)
         {
@@ -37,7 +37,7 @@ public static class LineParser
     public static bool TryParse(Memory<byte> buffer, out ParsedLine result)
     {
         var span = buffer.Span;
-        int separatorIndex = span.IndexOf(Separator);
+        var separatorIndex = span.IndexOf(Separator);
 
         if (separatorIndex < 0)
         {

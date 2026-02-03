@@ -6,12 +6,14 @@ namespace FileSorting.Sorter;
 /// Main external merge sort orchestrator.
 /// </summary>
 public sealed class ExternalMergeSorter(
-    SorterOptions options,
+    int chunkSize,
+    int parallelDegree,
+    string? tempDirectory = null,
     IProgress<SortProgress>? progress = null)
 {
     public async Task SortAsync(string inputPath, string outputPath, CancellationToken cancellationToken = default)
     {
-        using var tempManager = new TempFileManager(options.TempDirectory);
+        using var tempManager = new TempFileManager(tempDirectory);
 
         // Phase 1: Read and sort chunks
         var chunkFiles = await SortChunksAsync(inputPath, tempManager, cancellationToken);
@@ -60,13 +62,13 @@ public sealed class ExternalMergeSorter(
 
         // Use a channel for producer-consumer pattern
         var channel = Channel.CreateBounded<(Memory<byte> Chunk, string OutputPath)>(
-            new BoundedChannelOptions(options.ParallelDegree)
+            new BoundedChannelOptions(parallelDegree)
             {
                 FullMode = BoundedChannelFullMode.Wait
             });
 
         // Start consumer tasks
-        var consumers = Enumerable.Range(0, options.ParallelDegree)
+        var consumers = Enumerable.Range(0, parallelDegree)
             .Select(_ => ProcessChunksAsync(channel.Reader, cancellationToken))
             .ToArray();
 
@@ -78,7 +80,7 @@ public sealed class ExternalMergeSorter(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var chunk = await reader.ReadChunkAsync(options.ChunkSize, cancellationToken);
+            var chunk = await reader.ReadChunkAsync(chunkSize, cancellationToken);
             if (!chunk.HasValue || chunk.Value.Length == 0)
                 break;
 
@@ -109,27 +111,4 @@ public sealed class ExternalMergeSorter(
             await ChunkSorter.WriteChunkAsync(sortedLines, outputPath, cancellationToken);
         }
     }
-}
-
-public sealed class SorterOptions
-{
-    public int ChunkSize { get; init; }
-    public int ParallelDegree { get; init; }
-    public string? TempDirectory { get; init; }
-}
-
-public enum SortPhase
-{
-    Chunking,
-    Merging,
-    Completed
-}
-
-public readonly struct SortProgress(SortPhase phase, long current, long total)
-{
-    public SortPhase Phase { get; } = phase;
-    public long Current { get; } = current;
-    public long Total { get; } = total;
-
-    public double Percentage => Total > 0 ? (double)Current / Total * 100 : 0;
 }

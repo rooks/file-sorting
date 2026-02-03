@@ -28,7 +28,7 @@ public class SorterBenchmarks
 
         // Generate test file
         var pool = DictionaryStringPool.CreateDefault();
-        var fileGen = new ParallelFileGenerator(pool, Environment.ProcessorCount);
+        var fileGen = new ParallelFileGenerator(pool);
         fileGen.GenerateAsync(_inputFile, FileSize, seed: 42).GetAwaiter().GetResult();
     }
 
@@ -36,22 +36,13 @@ public class SorterBenchmarks
     public void Cleanup()
     {
         if (Directory.Exists(_tempDir))
-        {
             Directory.Delete(_tempDir, recursive: true);
-        }
     }
 
     [Benchmark]
     public async Task ExternalMergeSort()
     {
-        var options = new SorterOptions
-        {
-            ChunkSize = ChunkSize,
-            ParallelDegree = Environment.ProcessorCount,
-            TempDirectory = _tempDir
-        };
-
-        var sorter = new ExternalMergeSorter(options);
+        var sorter = new ExternalMergeSorter(ChunkSize, Environment.ProcessorCount, _tempDir);
         await sorter.SortAsync(_inputFile, _outputFile);
     }
 }

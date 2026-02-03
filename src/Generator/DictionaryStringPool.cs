@@ -2,10 +2,6 @@ using System.Text;
 
 namespace FileSorting.Generator;
 
-/// <summary>
-/// Thread-safe string pool that provides strings from a pre-loaded dictionary.
-/// Designed to be shared across multiple threads as read-only.
-/// </summary>
 public sealed class DictionaryStringPool
 {
     private readonly byte[][] _words;
@@ -15,29 +11,16 @@ public sealed class DictionaryStringPool
         _words = words;
     }
 
-    /// <summary>
-    /// Gets the number of words in the pool.
-    /// </summary>
     public int Count => _words.Length;
 
-    /// <summary>
-    /// Gets a string at the specified index as UTF-8 bytes.
-    /// </summary>
     public byte[] GetString(int index) => _words[index];
 
-    /// <summary>
-    /// Creates a DictionaryStringPool with the default embedded dictionary.
-    /// </summary>
     public static DictionaryStringPool CreateDefault()
     {
         var words = DefaultWords.Select(w => Encoding.UTF8.GetBytes(w)).ToArray();
         return new DictionaryStringPool(words);
     }
 
-    /// <summary>
-    /// Creates a DictionaryStringPool from a dictionary file.
-    /// Empty lines are skipped and whitespace is trimmed.
-    /// </summary>
     public static DictionaryStringPool FromFile(string path)
     {
         var lines = File.ReadAllLines(path);
@@ -51,7 +34,6 @@ public sealed class DictionaryStringPool
             : new DictionaryStringPool(words);
     }
 
-    // Default word list - common English words for test data generation
     private static readonly string[] DefaultWords =
     [
         // Common nouns

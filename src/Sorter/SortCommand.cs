@@ -10,18 +10,14 @@ public sealed class SortCommand : CancellableAsyncCommand<SorterSettings>
     public override async Task<int> ExecuteAsync(CommandContext context, SorterSettings settings, CancellationToken ct)
     {
         var inputInfo = new FileInfo(settings.Input!);
-        var options = new SorterOptions
-        {
-            TempDirectory = settings.TempDir,
-            ChunkSize = GetChunkSize(settings.ChunkSize),
-            ParallelDegree = settings.Parallel ?? Environment.ProcessorCount
-        };
+        var chunkSize = GetChunkSize(settings.ChunkSize);
+        var parallelDegree = settings.Parallel is null or 0 ? Environment.ProcessorCount : settings.Parallel.Value;
 
         AnsiConsole.MarkupLine($"[blue]Input:[/] {inputInfo.FullName}");
         AnsiConsole.MarkupLine($"[blue]Output:[/] {Path.GetFullPath(settings.Output!)}");
         AnsiConsole.MarkupLine($"[blue]Input size:[/] {SizeParser.Format(inputInfo.Length)}");
-        AnsiConsole.MarkupLine($"[blue]Chunk size:[/] {SizeParser.Format(options.ChunkSize)}");
-        AnsiConsole.MarkupLine($"[blue]Parallelism:[/] {options.ParallelDegree}");
+        AnsiConsole.MarkupLine($"[blue]Chunk size:[/] {SizeParser.Format(chunkSize)}");
+        AnsiConsole.MarkupLine($"[blue]Parallelism:[/] {parallelDegree}");
 
         var stopwatch = Stopwatch.StartNew();
 
@@ -41,6 +37,7 @@ public sealed class SortCommand : CancellableAsyncCommand<SorterSettings>
                     ProgressTask? chunkingTask = null;
                     ProgressTask? mergingTask = null;
 
+                    // todo: better cleanup
                     var progress = new Progress<SortProgress>(p =>
                     {
                         if (p.Phase == SortPhase.Chunking)
@@ -72,7 +69,7 @@ public sealed class SortCommand : CancellableAsyncCommand<SorterSettings>
                         }
                     });
 
-                    var sorter = new ExternalMergeSorter(options, progress);
+                    var sorter = new ExternalMergeSorter(chunkSize, parallelDegree, settings.TempDir, progress);
                     await sorter.SortAsync(inputInfo.FullName, settings.Output!, ct);
                 });
 

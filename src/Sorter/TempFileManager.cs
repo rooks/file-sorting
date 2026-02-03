@@ -4,6 +4,7 @@ public sealed class TempFileManager : IDisposable
 {
     private readonly string _tempDir;
     private readonly List<string> _tempFiles = [];
+
     private int _nextChunkId;
 
     public TempFileManager(string? tempDir = null)
@@ -14,7 +15,7 @@ public sealed class TempFileManager : IDisposable
 
     public string CreateChunkFile()
     {
-        var path = Path.Combine(_tempDir, $"chunk_{Interlocked.Increment(ref _nextChunkId):D6}.tmp");
+        var path = Path.Combine(_tempDir, $"chunk_{_nextChunkId++:D6}.tmp");
         _tempFiles.Add(path);
         return path;
     }
@@ -37,7 +38,7 @@ public sealed class TempFileManager : IDisposable
             }
             catch
             {
-                // best effort cleanup
+                // ok
             }
         }
 
@@ -48,7 +49,7 @@ public sealed class TempFileManager : IDisposable
         }
         catch
         {
-            // best effort cleanup
+            // ok
         }
     }
 }

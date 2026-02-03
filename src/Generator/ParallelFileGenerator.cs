@@ -5,7 +5,6 @@ namespace FileSorting.Generator;
 
 public sealed class ParallelFileGenerator(
     DictionaryStringPool stringPool,
-    int workerCount,
     IProgress<long>? progress = null)
 {
     private readonly record struct ChunkData(byte[] Buffer, int Length);
@@ -14,13 +13,15 @@ public sealed class ParallelFileGenerator(
     private const int FileStreamBuffer = 16 * 1024 * 1024; // 16MB
     private const int MaxLineSize = 1024;
 
+    private readonly int _workerCount = Environment.ProcessorCount;
+
     public async Task GenerateAsync(
         string outputPath,
         long targetSize,
         int? seed = null,
         CancellationToken ct = default)
     {
-        var opts = new BoundedChannelOptions(workerCount * 2)
+        var opts = new BoundedChannelOptions(_workerCount * 2)
         {
             SingleWriter = false,
             SingleReader = true,
@@ -28,14 +29,14 @@ public sealed class ParallelFileGenerator(
         };
         var channel = Channel.CreateBounded<ChunkData>(opts);
 
-        var bytesPerWorker = targetSize / workerCount;
-        var remainder = targetSize % workerCount;
+        var bytesPerWorker = targetSize / _workerCount;
+        var remainder = targetSize % _workerCount;
 
-        var workers = new Task[workerCount];
-        for (var i = 0; i < workerCount; i++)
+        var workers = new Task[_workerCount];
+        for (var i = 0; i < _workerCount; i++)
         {
             // last worker handles the remainder
-            var workerBytes = bytesPerWorker + (i == workerCount - 1 ? remainder : 0);
+            var workerBytes = bytesPerWorker + (i == _workerCount - 1 ? remainder : 0);
             var workerSeed = seed + i;
             workers[i] = GenerateChunksAsync(channel.Writer, workerBytes, workerSeed, ct);
         }

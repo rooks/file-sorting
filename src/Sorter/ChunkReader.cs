@@ -38,7 +38,7 @@ public sealed class ChunkReader : IDisposable
         if (_completed) return null;
 
         var totalBuffer = new ArrayBufferWriter<byte>(maxSize);
-        bool foundCompleteChunk = false;
+        var foundCompleteChunk = false;
 
         while (!foundCompleteChunk && totalBuffer.WrittenCount < maxSize)
         {
@@ -98,8 +98,8 @@ public sealed class ChunkReader : IDisposable
 
     private static long FindLastNewline(ReadOnlySequence<byte> buffer)
     {
-        long lastNewlinePos = -1;
-        long segmentStart = 0;
+        var lastNewlinePos = -1L;
+        var segmentStart = 0L;
 
         foreach (var segment in buffer)
         {
@@ -118,9 +118,7 @@ public sealed class ChunkReader : IDisposable
     private static void CopyToBuffer(ReadOnlySequence<byte> source, ArrayBufferWriter<byte> destination)
     {
         foreach (var segment in source)
-        {
             destination.Write(segment.Span);
-        }
     }
 
     public void Dispose()

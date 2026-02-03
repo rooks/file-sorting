@@ -36,8 +36,7 @@ public class ExternalMergeSorterTests : IDisposable
             4. Banana
             """);
 
-        var options = new SorterOptions { ChunkSize = 1024, ParallelDegree = 2 };
-        var sorter = new ExternalMergeSorter(options);
+        var sorter = new ExternalMergeSorter(1024, 2);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -58,8 +57,7 @@ public class ExternalMergeSorterTests : IDisposable
 
         await File.WriteAllTextAsync(inputFile, "");
 
-        var options = new SorterOptions { ChunkSize = 1024 };
-        var sorter = new ExternalMergeSorter(options);
+        var sorter = new ExternalMergeSorter(1024, 2);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -75,8 +73,7 @@ public class ExternalMergeSorterTests : IDisposable
 
         await File.WriteAllTextAsync(inputFile, "42. Single Line\n");
 
-        var options = new SorterOptions { ChunkSize = 1024 };
-        var sorter = new ExternalMergeSorter(options);
+        var sorter = new ExternalMergeSorter(1024, 2);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -106,8 +103,7 @@ public class ExternalMergeSorterTests : IDisposable
         await File.WriteAllTextAsync(inputFile, sb.ToString());
 
         // Use small chunk size to force multiple chunks
-        var options = new SorterOptions { ChunkSize = 1024, ParallelDegree = 2 };
-        var sorter = new ExternalMergeSorter(options);
+        var sorter = new ExternalMergeSorter(1024, 2);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -156,8 +152,7 @@ public class ExternalMergeSorterTests : IDisposable
         }
         await File.WriteAllTextAsync(inputFile, sb.ToString());
 
-        var options = new SorterOptions { ChunkSize = 512 };
-        var sorter = new ExternalMergeSorter(options);
+        var sorter = new ExternalMergeSorter(1024, 2);
 
         using var cts = new CancellationTokenSource();
         cts.Cancel();
