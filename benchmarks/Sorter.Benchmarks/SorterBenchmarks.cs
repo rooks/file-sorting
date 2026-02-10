@@ -1,5 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using FileSorting.Generator;
+using FileSorting.Shared;
+using FileSorting.Shared.Progress;
 
 namespace FileSorting.Sorter.Benchmarks;
 
@@ -7,6 +9,8 @@ namespace FileSorting.Sorter.Benchmarks;
 [SimpleJob(launchCount: 1, warmupCount: 3, iterationCount: 5)]
 public class SorterBenchmarks
 {
+    private readonly FakeTasksProgress _progress = new();
+
     private string _inputFile = null!;
     private string _outputFile = null!;
     private string _tempDir = null!;
@@ -26,9 +30,8 @@ public class SorterBenchmarks
         _inputFile = Path.Combine(_tempDir, "input.txt");
         _outputFile = Path.Combine(_tempDir, "output.txt");
 
-        // Generate test file
         var pool = DictionaryStringPool.CreateDefault();
-        var fileGen = new ParallelFileGenerator(pool);
+        var fileGen = new ParallelFileGenerator(pool, _progress);
         fileGen.GenerateAsync(_inputFile, FileSize, seed: 42).GetAwaiter().GetResult();
     }
 
@@ -42,7 +45,11 @@ public class SorterBenchmarks
     [Benchmark]
     public async Task ExternalMergeSort()
     {
-        var sorter = new ExternalMergeSorter(ChunkSize, Environment.ProcessorCount, _tempDir);
+        var sorter = new ExternalMergeSorter(
+            ChunkSize,
+            Environment.ProcessorCount,
+            _progress,
+            _tempDir);
         await sorter.SortAsync(_inputFile, _outputFile);
     }
 }

@@ -1,11 +1,12 @@
 using System.Buffers;
 using System.Threading.Channels;
+using FileSorting.Shared.Progress;
 
 namespace FileSorting.Generator;
 
 public sealed class ParallelFileGenerator(
     DictionaryStringPool stringPool,
-    IProgress<long>? progress = null)
+    ITasksProgress progress)
 {
     private readonly record struct ChunkData(byte[] Buffer, int Length);
 
@@ -31,6 +32,8 @@ public sealed class ParallelFileGenerator(
 
         var bytesPerWorker = targetSize / _workerCount;
         var remainder = targetSize % _workerCount;
+
+        progress.Start("Generating", targetSize);
 
         var workers = new Task[_workerCount];
         for (var i = 0; i < _workerCount; i++)
@@ -106,12 +109,12 @@ public sealed class ParallelFileGenerator(
 
             if (bytesWritten - lastReported >= reportInterval)
             {
-                progress?.Report(bytesWritten);
+                progress.Update(bytesWritten);
                 lastReported = bytesWritten;
             }
         }
 
-        progress?.Report(bytesWritten);
+        progress.Update(bytesWritten);
     }
 
     private static long GetReportInterval(long targetSize)

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using FileSorting.Shared;
+using FileSorting.Shared.Progress;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -7,7 +8,10 @@ namespace FileSorting.Sorter;
 
 public sealed class SortCommand : CancellableAsyncCommand<SorterSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext context, SorterSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(
+        CommandContext context,
+        SorterSettings settings,
+        CancellationToken ct)
     {
         var inputInfo = new FileInfo(settings.Input!);
         var chunkSize = GetChunkSize(settings.ChunkSize);
@@ -34,42 +38,9 @@ public sealed class SortCommand : CancellableAsyncCommand<SorterSettings>
                 )
                 .StartAsync(async ctx =>
                 {
-                    ProgressTask? chunkingTask = null;
-                    ProgressTask? mergingTask = null;
+                    using var progress = new SpectreTasksProgress(ctx);
 
-                    // todo: better cleanup
-                    var progress = new Progress<SortProgress>(p =>
-                    {
-                        if (p.Phase == SortPhase.Chunking)
-                        {
-                            chunkingTask ??= ctx.AddTask("[green]Chunking[/]", maxValue: p.Total);
-                            chunkingTask.Value = p.Current;
-                        }
-                        else if (p.Phase == SortPhase.Merging)
-                        {
-                            if (mergingTask == null)
-                            {
-                                if (chunkingTask != null)
-                                {
-                                    if (!chunkingTask.IsFinished)
-                                        chunkingTask.Value = chunkingTask.MaxValue;
-                                    chunkingTask.StopTask();
-                                }
-                                mergingTask = ctx.AddTask("[green]Merging[/]", maxValue: p.Total);
-                            }
-                            mergingTask.Value = p.Current;
-                        }
-                        else if (p.Phase == SortPhase.Completed)
-                        {
-                            if (mergingTask != null)
-                            {
-                                mergingTask.Value = mergingTask.MaxValue;
-                                mergingTask.StopTask();
-                            }
-                        }
-                    });
-
-                    var sorter = new ExternalMergeSorter(chunkSize, parallelDegree, settings.TempDir, progress);
+                    var sorter = new ExternalMergeSorter(chunkSize, parallelDegree, progress, settings.TempDir);
                     await sorter.SortAsync(inputInfo.FullName, settings.Output!, ct);
                 });
 

@@ -1,32 +1,31 @@
+using System.Buffers;
+using FileSorting.Shared.Progress;
+
 namespace FileSorting.Sorter;
 
 /// <summary>
 /// Performs k-way merge of sorted files using a priority queue.
 /// </summary>
-public sealed class KWayMerger
+public sealed class KWayMerger(
+    ITasksProgress progress)
 {
-    private static readonly System.Text.UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
-    private readonly IProgress<long>? _progress;
-
-    public KWayMerger(IProgress<long>? progress = null)
-    {
-        _progress = progress;
-    }
+    private const int WriteBufferSize = 64 * 1024; // 64KB write buffer
+    private const int FileStreamBufferSize = 16 * 1024 * 1024; // 16MB FileStream buffer
+    private static readonly byte[] NewLine = [(byte)'\n'];
 
     /// <summary>
     /// Merges multiple sorted files into a single output file.
     /// </summary>
     public async Task MergeAsync(
-        IReadOnlyList<string> inputFiles,
+        List<string> inputFiles,
         string outputPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken ct = default)
     {
         if (inputFiles.Count == 0)
             throw new ArgumentException("No input files to merge", nameof(inputFiles));
 
         if (inputFiles.Count == 1)
         {
-            // Just copy the single file
             File.Copy(inputFiles[0], outputPath, overwrite: true);
             return;
         }
@@ -37,10 +36,10 @@ public sealed class KWayMerger
         try
         {
             // Initialize readers and prime the priority queue
-            for (int i = 0; i < inputFiles.Count; i++)
+            for (var i = 0; i < inputFiles.Count; i++)
             {
                 readers[i] = new SortedFileReader(inputFiles[i], i);
-                var entry = await readers[i].ReadNextAsync(cancellationToken);
+                var entry = await readers[i].ReadNextAsync(ct);
                 if (entry.HasValue)
                 {
                     pq.Enqueue(entry.Value, entry.Value);
@@ -52,39 +51,78 @@ public sealed class KWayMerger
                 FileMode.Create,
                 FileAccess.Write,
                 FileShare.None,
-                bufferSize: 64 * 1024,
+                bufferSize: FileStreamBufferSize,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
 
-            await using var writer = new StreamWriter(outStream, Utf8NoBom, bufferSize: 64 * 1024);
-
-            long linesWritten = 0;
-            const long reportInterval = 100_000;
-
-            while (pq.Count > 0)
+            var writeBuffer = ArrayPool<byte>.Shared.Rent(WriteBufferSize);
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                var bufferPos = 0;
+                long linesWritten = 0;
+                const long reportInterval = 100_000;
 
-                var smallest = pq.Dequeue();
-
-                // Write the line
-                await writer.WriteLineAsync(smallest.Line.ToString());
-                linesWritten++;
-
-                if (linesWritten % reportInterval == 0)
+                while (pq.Count > 0)
                 {
-                    _progress?.Report(linesWritten);
+                    ct.ThrowIfCancellationRequested();
+
+                    var smallest = pq.Dequeue();
+
+                    // Write the line using binary buffer (no string allocation)
+                    var lineLength = smallest.LineBuffer.Length;
+                    var requiredSize = lineLength + 1; // +1 for newline
+
+                    // Flush buffer if this line won't fit
+                    if (bufferPos + requiredSize > writeBuffer.Length)
+                    {
+                        if (bufferPos > 0)
+                        {
+                            await outStream.WriteAsync(writeBuffer.AsMemory(0, bufferPos), ct);
+                            bufferPos = 0;
+                        }
+
+                        // If single line is larger than buffer, write directly
+                        if (requiredSize > writeBuffer.Length)
+                        {
+                            await outStream.WriteAsync(smallest.LineBuffer, ct);
+                            await outStream.WriteAsync(NewLine, ct);
+                            linesWritten++;
+                            goto readNext;
+                        }
+                    }
+
+                    // Copy line to buffer (use Span inside synchronous block)
+                    smallest.LineBuffer.Span.CopyTo(writeBuffer.AsSpan(bufferPos));
+                    bufferPos += lineLength;
+                    writeBuffer[bufferPos++] = (byte)'\n';
+                    linesWritten++;
+
+                readNext:
+                    if (linesWritten % reportInterval == 0)
+                    {
+                        progress.Update(linesWritten);
+                    }
+
+                    // Read next line from the same file
+                    var reader = readers[smallest.FileIndex];
+                    var next = await reader.ReadNextAsync(ct);
+                    if (next.HasValue)
+                    {
+                        pq.Enqueue(next.Value, next.Value);
+                    }
                 }
 
-                // Read next line from the same file
-                var reader = readers[smallest.FileIndex];
-                var next = await reader.ReadNextAsync(cancellationToken);
-                if (next.HasValue)
+                // Flush remaining data
+                if (bufferPos > 0)
                 {
-                    pq.Enqueue(next.Value, next.Value);
+                    await outStream.WriteAsync(writeBuffer.AsMemory(0, bufferPos), ct);
                 }
+
+                progress.Update(linesWritten);
             }
-
-            _progress?.Report(linesWritten);
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(writeBuffer);
+            }
         }
         finally
         {
@@ -105,14 +143,14 @@ public sealed class KWayMerger
         CancellationToken cancellationToken = default)
     {
         var currentFiles = inputFiles.ToList();
-        int pass = 0;
+        var pass = 0;
 
         while (currentFiles.Count > mergeWidth)
         {
             var nextFiles = new List<string>();
             var batches = currentFiles.Chunk(mergeWidth).ToList();
 
-            for (int i = 0; i < batches.Count; i++)
+            for (var i = 0; i < batches.Count; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 

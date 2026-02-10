@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace FileSorting.Sorter;
 
 /// <summary>
@@ -5,7 +7,9 @@ namespace FileSorting.Sorter;
 /// </summary>
 public static class ChunkSorter
 {
-    private static readonly System.Text.UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+    private const int WriteBufferSize = 64 * 1024; // 64KB write buffer
+    private const int FileStreamBufferSize = 16 * 1024 * 1024; // 16MB FileStream buffer
+    private static readonly byte[] NewLine = [(byte)'\n'];
 
     /// <summary>
     /// Parses and sorts lines in the chunk, returning them ready for writing.
@@ -25,23 +29,22 @@ public static class ChunkSorter
     {
         var lines = new List<ParsedLine>();
         var span = chunk.Span;
-        int start = 0;
+        var start = 0;
 
-        for (int i = 0; i < span.Length; i++)
+        for (var i = 0; i < span.Length; i++)
         {
-            if (span[i] == (byte)'\n')
+            if (span[i] != (byte)'\n') continue;
+
+            var lineLength = i - start;
+            if (lineLength > 0)
             {
-                int lineLength = i - start;
-                if (lineLength > 0)
+                var lineMemory = chunk.Slice(start, lineLength);
+                if (LineParser.TryParse(lineMemory, out var parsed))
                 {
-                    var lineMemory = chunk.Slice(start, lineLength);
-                    if (LineParser.TryParse(lineMemory, out var parsed))
-                    {
-                        lines.Add(parsed);
-                    }
+                    lines.Add(parsed);
                 }
-                start = i + 1;
             }
+            start = i + 1;
         }
 
         // Handle last line without newline
@@ -58,7 +61,7 @@ public static class ChunkSorter
     }
 
     /// <summary>
-    /// Writes sorted lines to a file.
+    /// Writes sorted lines to a file using binary writes (no string allocations).
     /// </summary>
     public static async Task WriteChunkAsync(
         IEnumerable<ParsedLine> sortedLines,
@@ -70,15 +73,54 @@ public static class ChunkSorter
             FileMode.Create,
             FileAccess.Write,
             FileShare.None,
-            bufferSize: 64 * 1024,
+            bufferSize: FileStreamBufferSize,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
 
-        await using var writer = new StreamWriter(stream, Utf8NoBom, bufferSize: 64 * 1024);
-
-        foreach (var line in sortedLines)
+        var writeBuffer = ArrayPool<byte>.Shared.Rent(WriteBufferSize);
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            await writer.WriteLineAsync(line.ToString());
+            var bufferPos = 0;
+
+            foreach (var line in sortedLines)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var lineLength = line.Buffer.Length;
+                var requiredSize = lineLength + 1; // +1 for newline
+
+                // Flush buffer if this line won't fit
+                if (bufferPos + requiredSize > writeBuffer.Length)
+                {
+                    if (bufferPos > 0)
+                    {
+                        await stream.WriteAsync(writeBuffer.AsMemory(0, bufferPos), cancellationToken);
+                        bufferPos = 0;
+                    }
+
+                    // If single line is larger than buffer, write directly
+                    if (requiredSize > writeBuffer.Length)
+                    {
+                        await stream.WriteAsync(line.Buffer, cancellationToken);
+                        await stream.WriteAsync(NewLine, cancellationToken);
+                        continue;
+                    }
+                }
+
+                // Copy line to buffer (use Span inside synchronous block)
+                line.Buffer.Span.CopyTo(writeBuffer.AsSpan(bufferPos));
+                bufferPos += lineLength;
+                writeBuffer[bufferPos++] = (byte)'\n';
+            }
+
+            // Flush remaining data
+            if (bufferPos > 0)
+            {
+                await stream.WriteAsync(writeBuffer.AsMemory(0, bufferPos), cancellationToken);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(writeBuffer);
         }
     }
 }

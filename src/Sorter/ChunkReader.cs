@@ -5,13 +5,14 @@ namespace FileSorting.Sorter;
 
 /// <summary>
 /// Reads chunks from a file using PipeReader, ensuring proper line boundaries.
+/// Returns rented buffers from ArrayPool that consumers must return after use.
 /// </summary>
 public sealed class ChunkReader : IDisposable
 {
+    private const int FileStreamBufferSize = 4 * 1024 * 1024; // 4MB read buffer
     private readonly FileStream _stream;
     private readonly PipeReader _reader;
     private bool _disposed;
-    private bool _completed;
 
     public ChunkReader(string filePath)
     {
@@ -20,41 +21,47 @@ public sealed class ChunkReader : IDisposable
             FileMode.Open,
             FileAccess.Read,
             FileShare.Read,
-            bufferSize: 64 * 1024,
+            bufferSize: FileStreamBufferSize,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
         _reader = PipeReader.Create(_stream);
     }
 
-    public bool IsCompleted => _completed;
-    public long Position => _stream.Position;
-    public long Length => _stream.Length;
+    public bool IsCompleted { get; private set; }
 
     /// <summary>
     /// Reads a chunk of data up to maxSize, ensuring it ends at a newline boundary.
     /// Returns null when there's no more data.
+    /// IMPORTANT: Caller must return the buffer to ArrayPool&lt;byte&gt;.Shared when done!
     /// </summary>
-    public async Task<Memory<byte>?> ReadChunkAsync(int maxSize, CancellationToken cancellationToken = default)
+    public async Task<(byte[] Buffer, int Length)?> ReadChunkAsync(
+        int maxSize,
+        CancellationToken ct = default)
     {
-        if (_completed) return null;
+        if (IsCompleted) return null;
 
-        var totalBuffer = new ArrayBufferWriter<byte>(maxSize);
+        // Rent a buffer from the pool for this chunk
+        var chunkBuffer = ArrayPool<byte>.Shared.Rent(maxSize);
+        var totalWritten = 0;
         var foundCompleteChunk = false;
 
-        while (!foundCompleteChunk && totalBuffer.WrittenCount < maxSize)
+        while (!foundCompleteChunk && totalWritten < maxSize)
         {
-            var result = await _reader.ReadAsync(cancellationToken);
+            var result = await _reader.ReadAsync(ct);
             var buffer = result.Buffer;
 
             if (buffer.IsEmpty && result.IsCompleted)
             {
-                _completed = true;
-                if (totalBuffer.WrittenCount == 0)
+                IsCompleted = true;
+                if (totalWritten == 0)
+                {
+                    ArrayPool<byte>.Shared.Return(chunkBuffer);
                     return null;
+                }
                 break;
             }
 
             // Find the last newline in the buffer
-            var remaining = maxSize - totalBuffer.WrittenCount;
+            var remaining = maxSize - totalWritten;
             var toExamine = buffer.Length > remaining ? buffer.Slice(0, remaining) : buffer;
 
             var lastNewline = FindLastNewline(toExamine);
@@ -63,23 +70,23 @@ public sealed class ChunkReader : IDisposable
             {
                 // Found a newline - consume up to and including it
                 var toConsume = toExamine.Slice(0, lastNewline + 1);
-                CopyToBuffer(toConsume, totalBuffer);
+                CopyToBuffer(toConsume, chunkBuffer, ref totalWritten);
                 _reader.AdvanceTo(toConsume.End);
                 foundCompleteChunk = true;
             }
             else if (result.IsCompleted)
             {
                 // End of file - consume everything
-                CopyToBuffer(toExamine, totalBuffer);
+                CopyToBuffer(toExamine, chunkBuffer, ref totalWritten);
                 _reader.AdvanceTo(toExamine.End);
-                _completed = true;
+                IsCompleted = true;
                 break;
             }
-            else if (toExamine.Length >= maxSize)
+            else if (toExamine.Length >= remaining)
             {
                 // Buffer is full but no newline found - consume what we have
                 // This handles very long lines
-                CopyToBuffer(toExamine, totalBuffer);
+                CopyToBuffer(toExamine, chunkBuffer, ref totalWritten);
                 _reader.AdvanceTo(toExamine.End);
                 break;
             }
@@ -90,10 +97,13 @@ public sealed class ChunkReader : IDisposable
             }
         }
 
-        if (totalBuffer.WrittenCount == 0)
+        if (totalWritten == 0)
+        {
+            ArrayPool<byte>.Shared.Return(chunkBuffer);
             return null;
+        }
 
-        return totalBuffer.WrittenMemory.ToArray();
+        return (chunkBuffer, totalWritten);
     }
 
     private static long FindLastNewline(ReadOnlySequence<byte> buffer)
@@ -115,10 +125,13 @@ public sealed class ChunkReader : IDisposable
         return lastNewlinePos;
     }
 
-    private static void CopyToBuffer(ReadOnlySequence<byte> source, ArrayBufferWriter<byte> destination)
+    private static void CopyToBuffer(ReadOnlySequence<byte> source, byte[] destination, ref int offset)
     {
         foreach (var segment in source)
-            destination.Write(segment.Span);
+        {
+            segment.Span.CopyTo(destination.AsSpan(offset));
+            offset += segment.Length;
+        }
     }
 
     public void Dispose()

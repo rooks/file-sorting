@@ -1,5 +1,5 @@
 using System.Text;
-using FileSorting.Sorter;
+using FileSorting.Shared.Progress;
 using Xunit;
 
 namespace FileSorting.Sorter.Tests.Integration;
@@ -7,6 +7,7 @@ namespace FileSorting.Sorter.Tests.Integration;
 public class ExternalMergeSorterTests : IDisposable
 {
     private readonly string _tempDir;
+    private readonly FakeTasksProgress _progress = new();
 
     public ExternalMergeSorterTests()
     {
@@ -17,9 +18,7 @@ public class ExternalMergeSorterTests : IDisposable
     public void Dispose()
     {
         if (Directory.Exists(_tempDir))
-        {
             Directory.Delete(_tempDir, recursive: true);
-        }
     }
 
     [Fact]
@@ -36,7 +35,7 @@ public class ExternalMergeSorterTests : IDisposable
             4. Banana
             """);
 
-        var sorter = new ExternalMergeSorter(1024, 2);
+        var sorter = new ExternalMergeSorter(1024, 2, _progress);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -57,7 +56,7 @@ public class ExternalMergeSorterTests : IDisposable
 
         await File.WriteAllTextAsync(inputFile, "");
 
-        var sorter = new ExternalMergeSorter(1024, 2);
+        var sorter = new ExternalMergeSorter(1024, 2, _progress);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -73,7 +72,7 @@ public class ExternalMergeSorterTests : IDisposable
 
         await File.WriteAllTextAsync(inputFile, "42. Single Line\n");
 
-        var sorter = new ExternalMergeSorter(1024, 2);
+        var sorter = new ExternalMergeSorter(1024, 2, _progress);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -103,7 +102,7 @@ public class ExternalMergeSorterTests : IDisposable
         await File.WriteAllTextAsync(inputFile, sb.ToString());
 
         // Use small chunk size to force multiple chunks
-        var sorter = new ExternalMergeSorter(1024, 2);
+        var sorter = new ExternalMergeSorter(1024, 2, _progress);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -152,10 +151,10 @@ public class ExternalMergeSorterTests : IDisposable
         }
         await File.WriteAllTextAsync(inputFile, sb.ToString());
 
-        var sorter = new ExternalMergeSorter(1024, 2);
+        var sorter = new ExternalMergeSorter(1024, 2, _progress);
 
         using var cts = new CancellationTokenSource();
-        cts.Cancel();
+        await cts.CancelAsync();
 
         await Assert.ThrowsAsync<OperationCanceledException>(
             () => sorter.SortAsync(inputFile, outputFile, cts.Token));

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using FileSorting.Shared;
+using FileSorting.Shared.Progress;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -44,17 +45,10 @@ public sealed class GenerateCommand : CancellableAsyncCommand<GeneratorSettings>
                 )
                 .StartAsync(async ctx =>
                 {
-                    var task = ctx.AddTask("[green]Generating[/]", maxValue: targetBytes);
-
-                    var progress = new Progress<long>(bytes =>
-                    {
-                        task.Value = bytes;
-                    });
+                    using var progress = new SpectreTasksProgress(ctx);
 
                     var fileGenerator = new ParallelFileGenerator(stringPool, progress);
                     await fileGenerator.GenerateAsync(settings.Output!, targetBytes, settings.Seed, ct);
-
-                    task.Value = targetBytes;
                 });
 
             stopwatch.Stop();
