@@ -9,7 +9,8 @@ public static class ChunkSorter
 {
     private const int WriteBufferSize = 64 * 1024; // 64KB write buffer
     private const int FileStreamBufferSize = 16 * 1024 * 1024; // 16MB FileStream buffer
-    private static readonly byte[] NewLine = [(byte)'\n'];
+    private const byte NewLineCh = (byte)'\n';
+    private static readonly byte[] NewLine = [NewLineCh];
 
     /// <summary>
     /// Parses and sorts lines in the chunk, returning them ready for writing.
@@ -33,7 +34,7 @@ public static class ChunkSorter
 
         for (var i = 0; i < span.Length; i++)
         {
-            if (span[i] != (byte)'\n') continue;
+            if (span[i] != NewLineCh) continue;
 
             var lineLength = i - start;
             if (lineLength > 0)
@@ -50,7 +51,7 @@ public static class ChunkSorter
         // Handle last line without newline
         if (start < span.Length)
         {
-            var lineMemory = chunk.Slice(start);
+            var lineMemory = chunk[start..];
             if (LineParser.TryParse(lineMemory, out var parsed))
             {
                 lines.Add(parsed);

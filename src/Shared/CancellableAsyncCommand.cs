@@ -7,7 +7,7 @@ public abstract class CancellableAsyncCommand<T> : AsyncCommand<T>
 {
     private readonly CancellationTokenSource _cts = new();
 
-    public CancellableAsyncCommand()
+    protected CancellableAsyncCommand()
     {
         Console.CancelKeyPress += (_, e) =>
         {
@@ -22,7 +22,7 @@ public abstract class CancellableAsyncCommand<T> : AsyncCommand<T>
         };
     }
 
-    public abstract Task<int> ExecuteAsync(CommandContext context, T settings, CancellationToken cancellation);
+    protected abstract Task<int> ExecuteAsync(CommandContext context, T settings, CancellationToken cancellation);
 
     public sealed override Task<int> ExecuteAsync(CommandContext context, T settings) =>
         ExecuteAsync(context, settings, _cts.Token);

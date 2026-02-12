@@ -8,7 +8,7 @@ namespace FileSorting.Generator;
 
 public sealed class GenerateCommand : CancellableAsyncCommand<GeneratorSettings>
 {
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext context,
         GeneratorSettings settings,
         CancellationToken ct)
