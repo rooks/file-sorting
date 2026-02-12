@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Threading.Channels;
 using FileSorting.Shared.Progress;
 
 namespace FileSorting.Sorter;
@@ -10,6 +11,11 @@ public sealed class MergeSorter(
     string? tempDirectory = null)
 {
     private readonly record struct FileRange(long Start, long End);
+
+    private readonly record struct WriteJob(
+        List<ParsedLine> SortedLines,
+        byte[] Buffer,
+        string OutputPath);
 
     public async Task SortAsync(
         string inputPath,
@@ -49,6 +55,23 @@ public sealed class MergeSorter(
         var chunkFiles = new string[ranges.Count];
         var bytesProcessed = 0L;
 
+        // Double-buffering: bounded channel separates sorting (CPU) from writing (I/O).
+        // Sorters enqueue write jobs; dedicated writers drain them concurrently.
+        var writeQueue = Channel.CreateBounded<WriteJob>(
+            new BoundedChannelOptions(Math.Max(2, parallelDegree / 2))
+            {
+                SingleWriter = false,
+                SingleReader = false,
+                FullMode = BoundedChannelFullMode.Wait
+            });
+
+        // Start dedicated writer tasks (I/O + LZ4 compression)
+        var writerCount = Math.Clamp(parallelDegree / 4, 1, 4);
+        var writerTasks = new Task[writerCount];
+        for (var w = 0; w < writerCount; w++)
+            writerTasks[w] = Task.Run(() => RunWriterAsync(writeQueue.Reader, ct), ct);
+
+        // Sort workers: read → sort → enqueue write job
         await Parallel.ForEachAsync(
             Enumerable.Range(0, ranges.Count),
             new ParallelOptions
@@ -61,13 +84,27 @@ public sealed class MergeSorter(
                 var range = ranges[index];
                 var outputPath = tempManager.CreateChunkFile();
                 chunkFiles[index] = outputPath;
-                await ProcessRangeAsync(input.FullName, range, outputPath, token);
+
+                // Read chunk into rented buffer
+                var length = (int)(range.End - range.Start);
+                var buffer = ArrayPool<byte>.Shared.Rent(length);
+                ReadRange(input.FullName, range, buffer, length);
+
+                // Sort (CPU-bound) — three-way quicksort
+                var sortedLines = ChunkSorter.SortChunk(buffer.AsMemory(0, length));
+
+                // Enqueue write job — blocks if queue is full (backpressure)
+                await writeQueue.Writer.WriteAsync(
+                    new WriteJob(sortedLines, buffer, outputPath), token);
 
                 var rangeSize = range.End - range.Start;
                 var current = Interlocked.Add(ref bytesProcessed, rangeSize);
-
                 progress.Update(current);
             });
+
+        // Signal no more write jobs, wait for all writes to finish
+        writeQueue.Writer.Complete();
+        await Task.WhenAll(writerTasks);
 
         progress.Stop();
 
@@ -163,37 +200,37 @@ public sealed class MergeSorter(
         return fileLength;
     }
 
-    private static Task ProcessRangeAsync(
-        string inputPath,
-        FileRange range,
-        string outputPath,
+    private static async Task RunWriterAsync(
+        ChannelReader<WriteJob> reader,
         CancellationToken ct)
     {
-        var length = (int)(range.End - range.Start);
-        var buffer = ArrayPool<byte>.Shared.Rent(length);
-        try
+        await foreach (var job in reader.ReadAllAsync(ct))
         {
-            using (var stream = new FileStream(
-                inputPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                bufferSize: Constants.ChunkReadBufferSize,
-                FileOptions.SequentialScan))
+            try
             {
-                stream.Seek(range.Start, SeekOrigin.Begin);
-                stream.ReadExactly(buffer.AsSpan(0, length));
+                ChunkSorter.WriteChunk(job.SortedLines, job.OutputPath, ct);
             }
-
-            var chunkMemory = buffer.AsMemory(0, length);
-            var sortedLines = ChunkSorter.SortChunk(chunkMemory);
-            ChunkSorter.WriteChunk(sortedLines, outputPath, ct);
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(job.Buffer);
+            }
         }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+    }
 
-        return Task.CompletedTask;
+    private static void ReadRange(
+        string inputPath,
+        FileRange range,
+        byte[] buffer,
+        int length)
+    {
+        using var stream = new FileStream(
+            inputPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: Constants.ChunkReadBufferSize,
+            FileOptions.SequentialScan);
+        stream.Seek(range.Start, SeekOrigin.Begin);
+        stream.ReadExactly(buffer.AsSpan(0, length));
     }
 }

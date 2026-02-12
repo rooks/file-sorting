@@ -17,7 +17,7 @@ public static class ChunkSorter
     public static List<ParsedLine> SortChunk(Memory<byte> chunk)
     {
         var lines = ParseLines(chunk);
-        lines.Sort(ParsedLineComparerWrapper.Instance);
+        ThreeWaySort.Sort(lines);
         return lines;
     }
 

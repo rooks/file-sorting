@@ -9,7 +9,7 @@ namespace FileSorting.Sorter;
 /// </summary>
 public sealed class SortedFileReader : IDisposable
 {
-    private const int FileStreamBufferSize = 256 * 1024; // 256KB read buffer
+    private const int FileStreamBufferSize = 1024 * 1024; // 1MB read buffer
     private const int MinLineBufferSize = 256;
     private readonly FileStream _stream;
     private readonly Stream _decompressStream;
