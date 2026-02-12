@@ -59,7 +59,7 @@ public class ChunkSorterTests
     }
 
     [Fact]
-    public async Task WriteChunkAsync_WritesAllLines()
+    public async Task WriteChunk_WritesAllLines()
     {
         var chunk = """
             2. B
@@ -71,7 +71,7 @@ public class ChunkSorterTests
         var tempFile = Path.GetTempFileName();
         try
         {
-            await ChunkSorter.WriteChunkAsync(sorted, tempFile);
+            ChunkSorter.WriteChunk(sorted, tempFile);
 
             var lines = await File.ReadAllLinesAsync(tempFile);
             Assert.Equal(2, lines.Length);

@@ -1,5 +1,3 @@
-using System.Buffers;
-
 namespace FileSorting.Sorter;
 
 /// <summary>
@@ -7,7 +5,6 @@ namespace FileSorting.Sorter;
 /// </summary>
 public static class ChunkSorter
 {
-    private const int WriteBufferSize = 64 * 1024; // 64KB write buffer
     private const int FileStreamBufferSize = 16 * 1024 * 1024; // 16MB FileStream buffer
     private const byte NewLineCh = (byte)'\n';
     private static readonly byte[] NewLine = [NewLineCh];
@@ -64,64 +61,57 @@ public static class ChunkSorter
     /// <summary>
     /// Writes sorted lines to a file using binary writes (no string allocations).
     /// </summary>
-    public static async Task WriteChunkAsync(
+    public static void WriteChunk(
         IEnumerable<ParsedLine> sortedLines,
         string outputPath,
         CancellationToken cancellationToken = default)
     {
-        await using var stream = new FileStream(
+        using var stream = new FileStream(
             outputPath,
             FileMode.Create,
             FileAccess.Write,
             FileShare.None,
             bufferSize: FileStreamBufferSize,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
+            FileOptions.SequentialScan);
 
-        var writeBuffer = ArrayPool<byte>.Shared.Rent(WriteBufferSize);
-        try
+        var writeBuffer = new byte[Constants.WriteBufferSize];
+        var bufferPos = 0;
+
+        foreach (var line in sortedLines)
         {
-            var bufferPos = 0;
+            cancellationToken.ThrowIfCancellationRequested();
 
-            foreach (var line in sortedLines)
+            var lineLength = line.Buffer.Length;
+            var requiredSize = lineLength + 1; // +1 for newline
+
+            // Flush buffer if this line won't fit
+            if (bufferPos + requiredSize > writeBuffer.Length)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var lineLength = line.Buffer.Length;
-                var requiredSize = lineLength + 1; // +1 for newline
-
-                // Flush buffer if this line won't fit
-                if (bufferPos + requiredSize > writeBuffer.Length)
+                if (bufferPos > 0)
                 {
-                    if (bufferPos > 0)
-                    {
-                        await stream.WriteAsync(writeBuffer.AsMemory(0, bufferPos), cancellationToken);
-                        bufferPos = 0;
-                    }
-
-                    // If single line is larger than buffer, write directly
-                    if (requiredSize > writeBuffer.Length)
-                    {
-                        await stream.WriteAsync(line.Buffer, cancellationToken);
-                        await stream.WriteAsync(NewLine, cancellationToken);
-                        continue;
-                    }
+                    stream.Write(writeBuffer.AsSpan(0, bufferPos));
+                    bufferPos = 0;
                 }
 
-                // Copy line to buffer (use Span inside synchronous block)
-                line.Buffer.Span.CopyTo(writeBuffer.AsSpan(bufferPos));
-                bufferPos += lineLength;
-                writeBuffer[bufferPos++] = (byte)'\n';
+                // If single line is larger than buffer, write directly
+                if (requiredSize > writeBuffer.Length)
+                {
+                    stream.Write(line.Buffer.Span);
+                    stream.Write(NewLine);
+                    continue;
+                }
             }
 
-            // Flush remaining data
-            if (bufferPos > 0)
-            {
-                await stream.WriteAsync(writeBuffer.AsMemory(0, bufferPos), cancellationToken);
-            }
+            // Copy line to buffer
+            line.Buffer.Span.CopyTo(writeBuffer.AsSpan(bufferPos));
+            bufferPos += lineLength;
+            writeBuffer[bufferPos++] = (byte)'\n';
         }
-        finally
+
+        // Flush remaining data
+        if (bufferPos > 0)
         {
-            ArrayPool<byte>.Shared.Return(writeBuffer);
+            stream.Write(writeBuffer.AsSpan(0, bufferPos));
         }
     }
 }

@@ -1,4 +1,3 @@
-using System.Buffers;
 using FileSorting.Shared.Progress;
 
 namespace FileSorting.Sorter;
@@ -9,7 +8,6 @@ namespace FileSorting.Sorter;
 public sealed class KWayMerger(
     ITasksProgress progress)
 {
-    private const int WriteBufferSize = 64 * 1024; // 64KB write buffer
     private const int FileStreamBufferSize = 16 * 1024 * 1024; // 16MB FileStream buffer
     private static readonly byte[] NewLine = [(byte)'\n'];
 
@@ -46,83 +44,76 @@ public sealed class KWayMerger(
                 }
             }
 
-            await using var outStream = new FileStream(
+            using var outStream = new FileStream(
                 outputPath,
                 FileMode.Create,
                 FileAccess.Write,
                 FileShare.None,
                 bufferSize: FileStreamBufferSize,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
+                FileOptions.SequentialScan);
 
-            var writeBuffer = ArrayPool<byte>.Shared.Rent(WriteBufferSize);
-            try
+            var writeBuffer = new byte[Constants.WriteBufferSize];
+            var bufferPos = 0;
+            long linesWritten = 0;
+            const long reportInterval = 100_000;
+
+            while (pq.Count > 0)
             {
-                var bufferPos = 0;
-                long linesWritten = 0;
-                const long reportInterval = 100_000;
+                ct.ThrowIfCancellationRequested();
 
-                while (pq.Count > 0)
+                var smallest = pq.Dequeue();
+
+                // Write the line using binary buffer (no string allocation)
+                var lineLength = smallest.LineBuffer.Length;
+                var requiredSize = lineLength + 1; // +1 for newline
+
+                // Flush buffer if this line won't fit
+                if (bufferPos + requiredSize > writeBuffer.Length)
                 {
-                    ct.ThrowIfCancellationRequested();
-
-                    var smallest = pq.Dequeue();
-
-                    // Write the line using binary buffer (no string allocation)
-                    var lineLength = smallest.LineBuffer.Length;
-                    var requiredSize = lineLength + 1; // +1 for newline
-
-                    // Flush buffer if this line won't fit
-                    if (bufferPos + requiredSize > writeBuffer.Length)
+                    if (bufferPos > 0)
                     {
-                        if (bufferPos > 0)
-                        {
-                            await outStream.WriteAsync(writeBuffer.AsMemory(0, bufferPos), ct);
-                            bufferPos = 0;
-                        }
-
-                        // If single line is larger than buffer, write directly
-                        if (requiredSize > writeBuffer.Length)
-                        {
-                            await outStream.WriteAsync(smallest.LineBuffer, ct);
-                            await outStream.WriteAsync(NewLine, ct);
-                            linesWritten++;
-                            goto readNext;
-                        }
+                        outStream.Write(writeBuffer.AsSpan(0, bufferPos));
+                        bufferPos = 0;
                     }
 
-                    // Copy line to buffer (use Span inside synchronous block)
-                    smallest.LineBuffer.Span.CopyTo(writeBuffer.AsSpan(bufferPos));
-                    bufferPos += lineLength;
-                    writeBuffer[bufferPos++] = (byte)'\n';
-                    linesWritten++;
-
-                readNext:
-                    if (linesWritten % reportInterval == 0)
+                    // If single line is larger than buffer, write directly
+                    if (requiredSize > writeBuffer.Length)
                     {
-                        progress.Update(linesWritten);
-                    }
-
-                    // Read next line from the same file
-                    var reader = readers[smallest.FileIndex];
-                    var next = await reader.ReadNextAsync(ct);
-                    if (next.HasValue)
-                    {
-                        pq.Enqueue(next.Value, next.Value);
+                        outStream.Write(smallest.LineBuffer.Span);
+                        outStream.Write(NewLine);
+                        linesWritten++;
+                        goto readNext;
                     }
                 }
 
-                // Flush remaining data
-                if (bufferPos > 0)
+                // Copy line to buffer
+                smallest.LineBuffer.Span.CopyTo(writeBuffer.AsSpan(bufferPos));
+                bufferPos += lineLength;
+                writeBuffer[bufferPos++] = (byte)'\n';
+                linesWritten++;
+
+            readNext:
+                if (linesWritten % reportInterval == 0)
                 {
-                    await outStream.WriteAsync(writeBuffer.AsMemory(0, bufferPos), ct);
+                    progress.Update(linesWritten);
                 }
 
-                progress.Update(linesWritten);
+                // Read next line from the same file
+                var reader = readers[smallest.FileIndex];
+                var next = await reader.ReadNextAsync(ct);
+                if (next.HasValue)
+                {
+                    pq.Enqueue(next.Value, next.Value);
+                }
             }
-            finally
+
+            // Flush remaining data
+            if (bufferPos > 0)
             {
-                ArrayPool<byte>.Shared.Return(writeBuffer);
+                outStream.Write(writeBuffer.AsSpan(0, bufferPos));
             }
+
+            progress.Update(linesWritten);
         }
         finally
         {

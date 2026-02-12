@@ -71,8 +71,8 @@ public sealed class SortCommand : CancellableAsyncCommand<SorterSettings>
             return (int)SizeParser.Parse(size);
 
         var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
-        var memoryPerCore = (long)(availableMemory * Constants.MemoryUsageRatio / Environment.ProcessorCount);
+        var memoryForChunks = (long)(availableMemory * Constants.MemoryUsageRatio);
 
-        return (int)Math.Clamp(memoryPerCore, Constants.MinChunkSize, Constants.MaxChunkSize);
+        return (int)Math.Clamp(memoryForChunks, Constants.MinChunkSize, Constants.MaxChunkSize);
     }
 }

@@ -156,7 +156,7 @@ public class ExternalMergeSorterTests : IDisposable
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        await Assert.ThrowsAsync<OperationCanceledException>(
+        await Assert.ThrowsAsync<TaskCanceledException>(
             () => sorter.SortAsync(inputFile, outputFile, cts.Token));
     }
 }

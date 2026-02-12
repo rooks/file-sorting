@@ -149,7 +149,7 @@ public sealed class ExternalMergeSorter(
         return ranges;
     }
 
-    private static async Task ProcessRangeAsync(
+    private static Task ProcessRangeAsync(
         string inputPath,
         FileRange range,
         string outputPath,
@@ -159,25 +159,27 @@ public sealed class ExternalMergeSorter(
         var buffer = ArrayPool<byte>.Shared.Rent(length);
         try
         {
-            await using (var stream = new FileStream(
+            using (var stream = new FileStream(
                 inputPath,
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
-                bufferSize: 4096,
-                FileOptions.Asynchronous | FileOptions.RandomAccess))
+                bufferSize: Constants.ChunkReadBufferSize,
+                FileOptions.SequentialScan))
             {
                 stream.Seek(range.Start, SeekOrigin.Begin);
-                await stream.ReadExactlyAsync(buffer.AsMemory(0, length), ct);
+                stream.ReadExactly(buffer.AsSpan(0, length));
             }
 
             var chunkMemory = buffer.AsMemory(0, length);
             var sortedLines = ChunkSorter.SortChunk(chunkMemory);
-            await ChunkSorter.WriteChunkAsync(sortedLines, outputPath, ct);
+            ChunkSorter.WriteChunk(sortedLines, outputPath, ct);
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
+
+        return Task.CompletedTask;
     }
 }
