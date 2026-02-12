@@ -3,6 +3,7 @@
     <Project Path="src/Shared/Shared.csproj" />
     <Project Path="src/Generator/Generator.csproj" />
     <Project Path="src/Sorter/Sorter.csproj" />
+    <Project Path="src/SorterDuckDb/SorterDuckDb.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Shared.Tests/Shared.Tests.csproj" />
