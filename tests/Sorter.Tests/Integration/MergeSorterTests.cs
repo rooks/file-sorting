@@ -4,12 +4,12 @@ using Xunit;
 
 namespace FileSorting.Sorter.Tests.Integration;
 
-public class ExternalMergeSorterTests : IDisposable
+public class MergeSorterTests : IDisposable
 {
     private readonly string _tempDir;
     private readonly FakeTasksProgress _progress = new();
 
-    public ExternalMergeSorterTests()
+    public MergeSorterTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"sorter_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempDir);
@@ -35,7 +35,7 @@ public class ExternalMergeSorterTests : IDisposable
             4. Banana
             """);
 
-        var sorter = new ExternalMergeSorter(1024, 2, _progress);
+        var sorter = new MergeSorter(1024, 2, _progress);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -56,7 +56,7 @@ public class ExternalMergeSorterTests : IDisposable
 
         await File.WriteAllTextAsync(inputFile, "");
 
-        var sorter = new ExternalMergeSorter(1024, 2, _progress);
+        var sorter = new MergeSorter(1024, 2, _progress);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -72,7 +72,7 @@ public class ExternalMergeSorterTests : IDisposable
 
         await File.WriteAllTextAsync(inputFile, "42. Single Line\n");
 
-        var sorter = new ExternalMergeSorter(1024, 2, _progress);
+        var sorter = new MergeSorter(1024, 2, _progress);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -102,7 +102,7 @@ public class ExternalMergeSorterTests : IDisposable
         await File.WriteAllTextAsync(inputFile, sb.ToString());
 
         // Use small chunk size to force multiple chunks
-        var sorter = new ExternalMergeSorter(1024, 2, _progress);
+        var sorter = new MergeSorter(1024, 2, _progress);
 
         await sorter.SortAsync(inputFile, outputFile);
 
@@ -151,7 +151,7 @@ public class ExternalMergeSorterTests : IDisposable
         }
         await File.WriteAllTextAsync(inputFile, sb.ToString());
 
-        var sorter = new ExternalMergeSorter(1024, 2, _progress);
+        var sorter = new MergeSorter(1024, 2, _progress);
 
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();

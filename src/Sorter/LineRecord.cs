@@ -1,4 +1,3 @@
-using System.Buffers.Text;
 using System.Text;
 
 namespace FileSorting.Sorter;
@@ -10,19 +9,22 @@ public readonly struct ParsedLine
     public readonly int NumberLength;
     public readonly int StringStart;
     public readonly int StringLength;
+    public readonly long NumberValue;
 
     public ParsedLine(
         Memory<byte> buffer,
         int numberStart,
         int numberLength,
         int stringStart,
-        int stringLength)
+        int stringLength,
+        long numberValue)
     {
         Buffer = buffer;
         NumberStart = numberStart;
         NumberLength = numberLength;
         StringStart = stringStart;
         StringLength = stringLength;
+        NumberValue = numberValue;
     }
 
     public ReadOnlySpan<byte> NumberPart =>
@@ -30,11 +32,7 @@ public readonly struct ParsedLine
     public ReadOnlySpan<byte> StringPart =>
         Buffer.Span.Slice(StringStart, StringLength);
 
-    public long GetNumber()
-    {
-        Utf8Parser.TryParse(NumberPart, out long value, out _);
-        return value;
-    }
+    public long GetNumber() => NumberValue;
 
     public string GetString() =>
         Encoding.UTF8.GetString(StringPart);
@@ -49,10 +47,7 @@ public static class ParsedLineComparer
     {
         var cmp = a.StringPart.SequenceCompareTo(b.StringPart);
         if (cmp != 0) return cmp;
-
-        Utf8Parser.TryParse(a.NumberPart, out long numA, out _);
-        Utf8Parser.TryParse(b.NumberPart, out long numB, out _);
-        return numA.CompareTo(numB);
+        return a.NumberValue.CompareTo(b.NumberValue);
     }
 }
 

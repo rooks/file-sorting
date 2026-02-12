@@ -22,7 +22,7 @@ public abstract class CancellableAsyncCommand<T> : AsyncCommand<T>
         };
     }
 
-    protected abstract Task<int> ExecuteAsync(CommandContext context, T settings, CancellationToken cancellation);
+    protected abstract Task<int> ExecuteAsync(CommandContext context, T settings, CancellationToken t);
 
     public sealed override Task<int> ExecuteAsync(CommandContext context, T settings) =>
         ExecuteAsync(context, settings, _cts.Token);

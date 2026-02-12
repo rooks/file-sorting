@@ -11,12 +11,12 @@ public sealed class SortCommand : CancellableAsyncCommand<SorterSettings>
     protected override async Task<int> ExecuteAsync(
         CommandContext context,
         SorterSettings settings,
-        CancellationToken ct)
+        CancellationToken t)
     {
         var inputInfo = new FileInfo(settings.Input!);
         var outputInfo = new FileInfo(settings.Output!);
-        var chunkSize = GetChunkSize(settings.ChunkSize);
         var parallelDegree = settings.Parallel is null or 0 ? Environment.ProcessorCount : settings.Parallel.Value;
+        var chunkSize = GetChunkSize(settings.ChunkSize, parallelDegree);
 
         AnsiConsole.MarkupLine($"[blue]Input:[/] {inputInfo.FullName}");
         AnsiConsole.MarkupLine($"[blue]Output:[/] {outputInfo.FullName}");
@@ -41,8 +41,8 @@ public sealed class SortCommand : CancellableAsyncCommand<SorterSettings>
                 {
                     using var progress = new SpectreTasksProgress(ctx);
 
-                    var sorter = new ExternalMergeSorter(chunkSize, parallelDegree, progress, settings.TempDir);
-                    await sorter.SortAsync(inputInfo.FullName, outputInfo.FullName, ct);
+                    var sorter = new MergeSorter(chunkSize, parallelDegree, progress, settings.TempDir);
+                    await sorter.SortAsync(inputInfo.FullName, outputInfo.FullName, t);
                 });
 
             stopwatch.Stop();
@@ -65,14 +65,19 @@ public sealed class SortCommand : CancellableAsyncCommand<SorterSettings>
         }
     }
 
-    private static int GetChunkSize(string? size)
+    private static int GetChunkSize(string? size, int parallelDegree)
     {
         if (!string.IsNullOrEmpty(size))
             return (int)SizeParser.Parse(size);
 
         var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
-        var memoryForChunks = (long)(availableMemory * Constants.MemoryUsageRatio);
+        if (availableMemory <= 0)
+            return Constants.MinChunkSize;
 
-        return (int)Math.Clamp(memoryForChunks, Constants.MinChunkSize, Constants.MaxChunkSize);
+        var memoryForChunks = (long)(availableMemory * Constants.MemoryUsageRatio);
+        var workerCount = Math.Max(1, parallelDegree);
+        var perWorkerChunkSize = memoryForChunks / workerCount;
+
+        return (int)Math.Clamp(perWorkerChunkSize, Constants.MinChunkSize, Constants.MaxChunkSize);
     }
 }

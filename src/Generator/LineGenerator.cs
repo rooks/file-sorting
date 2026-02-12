@@ -4,7 +4,7 @@ namespace FileSorting.Generator;
 
 /// <summary>
 /// Generates lines in format "Number. String".
-/// Thread-safe when each thread has its own instance.
+/// Each instance should be used by a single thread only.
 /// </summary>
 public sealed class LineGenerator
 {
@@ -12,10 +12,6 @@ public sealed class LineGenerator
     private readonly int _maxNumber;
     private readonly Random _random;
 
-    /// <summary>
-    /// Generates lines in format "Number. String".
-    /// Each instance should be used by a single thread only.
-    /// </summary>
     public LineGenerator(
         DictionaryStringPool stringPool,
         int maxNumber = 1_000_000_000,
@@ -26,10 +22,6 @@ public sealed class LineGenerator
         _random = seed.HasValue ? new Random(seed.Value) : new Random();
     }
 
-    /// <summary>
-    /// Writes a line to the buffer and returns bytes written.
-    /// Format: "{number}. {string}\n"
-    /// </summary>
     public int WriteLine(Span<byte> buffer)
     {
         // perf: single RNG call for number & stringIndex

@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace FileSorting.Sorter;
 
 /// <summary>
@@ -6,8 +8,7 @@ namespace FileSorting.Sorter;
 public static class ChunkSorter
 {
     private const int FileStreamBufferSize = 16 * 1024 * 1024; // 16MB FileStream buffer
-    private const byte NewLineCh = (byte)'\n';
-    private static readonly byte[] NewLine = [NewLineCh];
+    private static readonly byte[] NewLine = [Constants.NewLineCh];
 
     /// <summary>
     /// Parses and sorts lines in the chunk, returning them ready for writing.
@@ -25,13 +26,14 @@ public static class ChunkSorter
     /// </summary>
     private static List<ParsedLine> ParseLines(Memory<byte> chunk)
     {
-        var lines = new List<ParsedLine>();
+        var estimatedLineCount = Math.Max(16, chunk.Length / Constants.EstimatedBytesPerLine);
+        var lines = new List<ParsedLine>(estimatedLineCount);
         var span = chunk.Span;
         var start = 0;
 
         for (var i = 0; i < span.Length; i++)
         {
-            if (span[i] != NewLineCh) continue;
+            if (span[i] != Constants.NewLineCh) continue;
 
             var lineLength = i - start;
             if (lineLength > 0)
@@ -64,7 +66,7 @@ public static class ChunkSorter
     public static void WriteChunk(
         IEnumerable<ParsedLine> sortedLines,
         string outputPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken ct = default)
     {
         using var stream = new FileStream(
             outputPath,
@@ -74,44 +76,50 @@ public static class ChunkSorter
             bufferSize: FileStreamBufferSize,
             FileOptions.SequentialScan);
 
-        var writeBuffer = new byte[Constants.WriteBufferSize];
-        var bufferPos = 0;
-
-        foreach (var line in sortedLines)
+        var writeBuffer = ArrayPool<byte>.Shared.Rent(Constants.WriteBufferSize);
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var lineLength = line.Buffer.Length;
-            var requiredSize = lineLength + 1; // +1 for newline
-
-            // Flush buffer if this line won't fit
-            if (bufferPos + requiredSize > writeBuffer.Length)
+            var bufferPos = 0;
+            foreach (var line in sortedLines)
             {
-                if (bufferPos > 0)
+                ct.ThrowIfCancellationRequested();
+
+                var lineLength = line.Buffer.Length;
+                var requiredSize = lineLength + 1; // +1 for newline
+
+                // Flush buffer if this line won't fit
+                if (bufferPos + requiredSize > writeBuffer.Length)
                 {
-                    stream.Write(writeBuffer.AsSpan(0, bufferPos));
-                    bufferPos = 0;
+                    if (bufferPos > 0)
+                    {
+                        stream.Write(writeBuffer.AsSpan(0, bufferPos));
+                        bufferPos = 0;
+                    }
+
+                    // If single line is larger than buffer, write directly
+                    if (requiredSize > writeBuffer.Length)
+                    {
+                        stream.Write(line.Buffer.Span);
+                        stream.Write(NewLine);
+                        continue;
+                    }
                 }
 
-                // If single line is larger than buffer, write directly
-                if (requiredSize > writeBuffer.Length)
-                {
-                    stream.Write(line.Buffer.Span);
-                    stream.Write(NewLine);
-                    continue;
-                }
+                // Copy line to buffer
+                line.Buffer.Span.CopyTo(writeBuffer.AsSpan(bufferPos));
+                bufferPos += lineLength;
+                writeBuffer[bufferPos++] = Constants.NewLineCh;
             }
 
-            // Copy line to buffer
-            line.Buffer.Span.CopyTo(writeBuffer.AsSpan(bufferPos));
-            bufferPos += lineLength;
-            writeBuffer[bufferPos++] = (byte)'\n';
+            // Flush remaining data
+            if (bufferPos > 0)
+            {
+                stream.Write(writeBuffer.AsSpan(0, bufferPos));
+            }
         }
-
-        // Flush remaining data
-        if (bufferPos > 0)
+        finally
         {
-            stream.Write(writeBuffer.AsSpan(0, bufferPos));
+            ArrayPool<byte>.Shared.Return(writeBuffer);
         }
     }
 }

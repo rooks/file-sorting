@@ -3,18 +3,13 @@ using FileSorting.Shared.Progress;
 
 namespace FileSorting.Sorter;
 
-internal readonly record struct FileRange(long Start, long End);
-
-/// <summary>
-/// Main external merge sort orchestrator.
-/// </summary>
-public sealed class ExternalMergeSorter(
+public sealed class MergeSorter(
     int chunkSize,
     int parallelDegree,
     ITasksProgress progress,
     string? tempDirectory = null)
 {
-    private const int ProbeBufferSize = 8 * 1024; // 8KB for boundary probing
+    private readonly record struct FileRange(long Start, long End);
 
     public async Task SortAsync(
         string inputPath,
@@ -24,36 +19,22 @@ public sealed class ExternalMergeSorter(
         using var tempManager = new TempFileManager(tempDirectory);
 
         var chunkFiles = await SortChunksAsync(inputPath, tempManager, ct);
-        if (chunkFiles.Count == 0)
+        if (chunkFiles.Length == 0)
         {
             await File.WriteAllTextAsync(outputPath, string.Empty, ct);
             return;
         }
 
-        progress.Start("Merging", chunkFiles.Count);
+        var merger = new KWayMerger(progress, parallelDegree);
 
-        var merger = new KWayMerger(progress);
-
-        if (chunkFiles.Count <= Constants.MergeWidth)
-        {
-            // Single-pass merge directly to output
-            await merger.MergeAsync(chunkFiles, outputPath, ct);
-        }
-        else
-        {
-            var finalTemp = await merger.MultiPassMergeAsync(
-                chunkFiles,
-                Constants.MergeWidth,
-                tempManager,
-                ct);
-
-            File.Move(finalTemp, outputPath, overwrite: true);
-        }
-
-        progress.Stop();
+        await merger.MergeAsync(
+            chunkFiles,
+            tempManager,
+            outputPath,
+            ct);
     }
 
-    private async Task<List<string>> SortChunksAsync(
+    private async Task<string[]> SortChunksAsync(
         string inputPath,
         TempFileManager tempManager,
         CancellationToken ct)
@@ -84,12 +65,13 @@ public sealed class ExternalMergeSorter(
 
                 var rangeSize = range.End - range.Start;
                 var current = Interlocked.Add(ref bytesProcessed, rangeSize);
+
                 progress.Update(current);
             });
 
         progress.Stop();
 
-        return [..chunkFiles];
+        return chunkFiles;
     }
 
     private List<FileRange> CalculateRanges(FileInfo input)
@@ -102,6 +84,8 @@ public sealed class ExternalMergeSorter(
         if (rangeCount <= 1)
             return [new FileRange(0, fileLength)];
 
+        progress.Start("Calculate ranges", rangeCount);
+
         var boundaries = new long[rangeCount + 1];
         boundaries[0] = 0;
         boundaries[rangeCount] = fileLength;
@@ -111,29 +95,29 @@ public sealed class ExternalMergeSorter(
             FileMode.Open,
             FileAccess.Read,
             FileShare.Read,
-            bufferSize: ProbeBufferSize,
+            bufferSize: Constants.BoundaryProbeBufferSize,
             FileOptions.RandomAccess);
 
-        var probeBuffer = new byte[ProbeBufferSize];
+        var probeBuffer = new byte[Constants.BoundaryProbeBufferSize];
 
         for (var i = 1; i < rangeCount; i++)
         {
             var candidate = (long)i * chunkSize;
+            var boundary = FindNextBoundary(probeStream, probeBuffer, candidate, fileLength);
+            boundaries[i] = Math.Max(boundaries[i - 1], boundary);
 
-            probeStream.Seek(candidate, SeekOrigin.Begin);
-            var bytesRead = probeStream.Read(probeBuffer, 0, (int)Math.Min(ProbeBufferSize, fileLength - candidate));
+            // No more newline found after this candidate.
+            if (boundaries[i] == fileLength)
+            {
+                for (var j = i + 1; j < rangeCount; j++)
+                {
+                    boundaries[j] = fileLength;
+                }
 
-            var newlineIndex = probeBuffer.AsSpan(0, bytesRead).IndexOf((byte)'\n');
-            if (newlineIndex >= 0)
-            {
-                boundaries[i] = candidate + newlineIndex + 1;
+                break;
             }
-            else
-            {
-                // No newline found in probe — skip this boundary,
-                // previous range grows
-                boundaries[i] = boundaries[i - 1];
-            }
+
+            progress.Update(i);
         }
 
         // Build ranges, skipping any zero-length ranges from collapsed boundaries
@@ -146,7 +130,37 @@ public sealed class ExternalMergeSorter(
                 ranges.Add(new FileRange(start, end));
         }
 
+        progress.Stop();
+
         return ranges;
+    }
+
+    private static long FindNextBoundary(
+        FileStream probeStream,
+        byte[] probeBuffer,
+        long candidate,
+        long fileLength)
+    {
+        if (candidate >= fileLength)
+            return fileLength;
+
+        var position = candidate;
+        while (position < fileLength)
+        {
+            probeStream.Seek(position, SeekOrigin.Begin);
+            var bytesToRead = (int)Math.Min(probeBuffer.Length, fileLength - position);
+            var bytesRead = probeStream.Read(probeBuffer, 0, bytesToRead);
+            if (bytesRead <= 0)
+                return fileLength;
+
+            var newlineIndex = probeBuffer.AsSpan(0, bytesRead).IndexOf((byte)'\n');
+            if (newlineIndex >= 0)
+                return position + newlineIndex + 1;
+
+            position += bytesRead;
+        }
+
+        return fileLength;
     }
 
     private static Task ProcessRangeAsync(

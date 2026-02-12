@@ -11,7 +11,7 @@ public sealed class GenerateCommand : CancellableAsyncCommand<GeneratorSettings>
     protected override async Task<int> ExecuteAsync(
         CommandContext context,
         GeneratorSettings settings,
-        CancellationToken ct)
+        CancellationToken t)
     {
         var targetBytes = SizeParser.Parse(settings.Size!);
 
@@ -47,8 +47,8 @@ public sealed class GenerateCommand : CancellableAsyncCommand<GeneratorSettings>
                 {
                     using var progress = new SpectreTasksProgress(ctx);
 
-                    var fileGenerator = new ParallelFileGenerator(stringPool, progress);
-                    await fileGenerator.GenerateAsync(settings.Output!, targetBytes, settings.Seed, ct);
+                    var fileGenerator = new FileGenerator(stringPool, progress);
+                    await fileGenerator.GenerateAsync(settings.Output!, targetBytes, settings.Seed, t);
                 });
 
             stopwatch.Stop();

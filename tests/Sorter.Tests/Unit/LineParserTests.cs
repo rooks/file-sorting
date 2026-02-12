@@ -52,9 +52,19 @@ public class LineParserTests
         Assert.Throws<FormatException>(() => LineParser.Parse(memory));
     }
 
+    [Fact]
+    public void Parse_InvalidNumber_ThrowsFormatException()
+    {
+        var line = "abc. Hello"u8.ToArray();
+        var memory = line.AsMemory();
+
+        Assert.Throws<FormatException>(() => LineParser.Parse(memory));
+    }
+
     [Theory]
     [InlineData("12345. Hello", true)]
     [InlineData("no separator", false)]
+    [InlineData("abc. Hello", false)]
     public void TryParse_ReturnsExpectedResult(string line, bool expectedResult)
     {
         var bytes = Encoding.UTF8.GetBytes(line);

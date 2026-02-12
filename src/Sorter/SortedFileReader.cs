@@ -9,10 +9,11 @@ namespace FileSorting.Sorter;
 public sealed class SortedFileReader : IDisposable
 {
     private const int FileStreamBufferSize = 256 * 1024; // 256KB read buffer
+    private const int MinLineBufferSize = 256;
     private readonly FileStream _stream;
     private readonly PipeReader _reader;
     private readonly int _fileIndex;
-    private byte[]? _currentLineBuffer;
+    private byte[]? _lineBuffer;
     private bool _disposed;
     private bool _eof;
 
@@ -33,16 +34,13 @@ public sealed class SortedFileReader : IDisposable
     /// Reads the next line and creates a MergeEntry.
     /// Returns null if at end of file.
     /// </summary>
-    public async Task<MergeEntry?> ReadNextAsync(CancellationToken cancellationToken = default)
+    public async Task<MergeEntry?> ReadNextAsync(CancellationToken ct = default)
     {
         if (_eof) return null;
 
-        // Return previous line buffer to pool
-        ReturnCurrentBuffer();
-
         while (true)
         {
-            var result = await _reader.ReadAsync(cancellationToken);
+            var result = await _reader.ReadAsync(ct);
             var buffer = result.Buffer;
 
             if (buffer.IsEmpty && result.IsCompleted)
@@ -60,10 +58,7 @@ public sealed class SortedFileReader : IDisposable
                 var lineSequence = buffer.Slice(0, newlinePos.Value);
                 var lineLength = (int)lineSequence.Length;
 
-                // Rent buffer from pool and copy line data
-                _currentLineBuffer = ArrayPool<byte>.Shared.Rent(lineLength);
-                lineSequence.CopyTo(_currentLineBuffer);
-                var lineMemory = _currentLineBuffer.AsMemory(0, lineLength);
+                var lineMemory = CopyToLineBuffer(lineSequence, lineLength);
 
                 // Advance past the newline
                 _reader.AdvanceTo(buffer.GetPosition(1, newlinePos.Value));
@@ -74,8 +69,7 @@ public sealed class SortedFileReader : IDisposable
                     return new MergeEntry(parsed, _fileIndex, lineMemory);
                 }
 
-                // Invalid line, return buffer and try next
-                ReturnCurrentBuffer();
+                // Invalid line, continue to next line.
                 continue;
             }
 
@@ -85,9 +79,7 @@ public sealed class SortedFileReader : IDisposable
                 if (buffer.Length > 0)
                 {
                     var lineLength = (int)buffer.Length;
-                    _currentLineBuffer = ArrayPool<byte>.Shared.Rent(lineLength);
-                    buffer.CopyTo(_currentLineBuffer);
-                    var lineMemory = _currentLineBuffer.AsMemory(0, lineLength);
+                    var lineMemory = CopyToLineBuffer(buffer, lineLength);
 
                     _reader.AdvanceTo(buffer.End);
                     _eof = true;
@@ -96,8 +88,6 @@ public sealed class SortedFileReader : IDisposable
                     {
                         return new MergeEntry(parsed, _fileIndex, lineMemory);
                     }
-
-                    ReturnCurrentBuffer();
                 }
 
                 _eof = true;
@@ -119,20 +109,42 @@ public sealed class SortedFileReader : IDisposable
         return null;
     }
 
-    private void ReturnCurrentBuffer()
+    private Memory<byte> CopyToLineBuffer(
+        ReadOnlySequence<byte> lineSequence,
+        int lineLength)
     {
-        if (_currentLineBuffer != null)
+        EnsureLineBufferCapacity(lineLength);
+        lineSequence.CopyTo(_lineBuffer!);
+        return _lineBuffer!.AsMemory(0, lineLength);
+    }
+
+    private void EnsureLineBufferCapacity(int requiredLength)
+    {
+        if (_lineBuffer != null && _lineBuffer.Length >= requiredLength)
+            return;
+
+        var newBufferLength = Math.Max(requiredLength, MinLineBufferSize);
+        var newBuffer = ArrayPool<byte>.Shared.Rent(newBufferLength);
+
+        if (_lineBuffer != null)
         {
-            ArrayPool<byte>.Shared.Return(_currentLineBuffer);
-            _currentLineBuffer = null;
+            ArrayPool<byte>.Shared.Return(_lineBuffer);
         }
+
+        _lineBuffer = newBuffer;
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        ReturnCurrentBuffer();
+
+        if (_lineBuffer != null)
+        {
+            ArrayPool<byte>.Shared.Return(_lineBuffer);
+            _lineBuffer = null;
+        }
+
         _reader.Complete();
         _stream.Dispose();
     }

@@ -15,10 +15,10 @@ public class SorterBenchmarks
     private string _outputFile = null!;
     private string _tempDir = null!;
 
-    [Params(1024 * 1024, 10 * 1024 * 1024)] // 1MB, 10MB
+    [Params(10 * 1024 * 1024, 100 * 1024 * 1024)] // 10MB, 100MB
     public int FileSize { get; set; }
 
-    [Params(1024 * 1024, 2 * 1024 * 1024)] // 1MB, 2MB chunks
+    [Params(8 * 1024 * 1024, 32 * 1024 * 1024)] // 8MB, 32MB chunks
     public int ChunkSize { get; set; }
 
     [GlobalSetup]
@@ -31,7 +31,7 @@ public class SorterBenchmarks
         _outputFile = Path.Combine(_tempDir, "output.txt");
 
         var pool = DictionaryStringPool.CreateDefault();
-        var fileGen = new ParallelFileGenerator(pool, _progress);
+        var fileGen = new FileGenerator(pool, _progress);
         fileGen.GenerateAsync(_inputFile, FileSize, seed: 42).GetAwaiter().GetResult();
     }
 
@@ -45,7 +45,7 @@ public class SorterBenchmarks
     [Benchmark]
     public async Task ExternalMergeSort()
     {
-        var sorter = new ExternalMergeSorter(
+        var sorter = new MergeSorter(
             ChunkSize,
             Environment.ProcessorCount,
             _progress,

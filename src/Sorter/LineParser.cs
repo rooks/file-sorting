@@ -1,3 +1,5 @@
+using System.Buffers.Text;
+
 namespace FileSorting.Sorter;
 
 /// <summary>
@@ -22,12 +24,18 @@ public static class LineParser
             throw new FormatException($"Invalid line format: separator '. ' not found");
         }
 
+        if (!TryParseNumber(span[..separatorIndex], out var numberValue))
+        {
+            throw new FormatException("Invalid line format: number part is not a valid integer");
+        }
+
         return new ParsedLine(
             buffer,
             numberStart: 0,
             numberLength: separatorIndex,
             stringStart: separatorIndex + 2,
-            stringLength: span.Length - separatorIndex - 2
+            stringLength: span.Length - separatorIndex - 2,
+            numberValue: numberValue
         );
     }
 
@@ -45,14 +53,35 @@ public static class LineParser
             return false;
         }
 
+        if (!TryParseNumber(span[..separatorIndex], out var numberValue))
+        {
+            result = default;
+            return false;
+        }
+
         result = new ParsedLine(
             buffer,
             numberStart: 0,
             numberLength: separatorIndex,
             stringStart: separatorIndex + 2,
-            stringLength: span.Length - separatorIndex - 2
+            stringLength: span.Length - separatorIndex - 2,
+            numberValue: numberValue
         );
         return true;
+    }
+
+    private static bool TryParseNumber(
+        ReadOnlySpan<byte> numberPart,
+        out long numberValue)
+    {
+        if (numberPart.IsEmpty)
+        {
+            numberValue = default;
+            return false;
+        }
+
+        return Utf8Parser.TryParse(numberPart, out numberValue, out var consumed)
+            && consumed == numberPart.Length;
     }
 
     /// <summary>

@@ -4,7 +4,7 @@ using FileSorting.Shared.Progress;
 
 namespace FileSorting.Generator;
 
-public sealed class ParallelFileGenerator(
+public sealed class FileGenerator(
     DictionaryStringPool stringPool,
     ITasksProgress progress)
 {
@@ -94,7 +94,7 @@ public sealed class ParallelFileGenerator(
             FileAccess.Write,
             FileShare.None,
             bufferSize: FileStreamBuffer,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
+            FileOptions.Asynchronous);
 
         var bytesWritten = 0L;
         var lastReported = 0L;

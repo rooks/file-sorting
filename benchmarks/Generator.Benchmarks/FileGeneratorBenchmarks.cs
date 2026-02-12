@@ -7,7 +7,7 @@ namespace FileSorting.Generator.Benchmarks;
 [SimpleJob(launchCount: 1, warmupCount: 3, iterationCount: 5)]
 public class FileGeneratorBenchmarks
 {
-    private ParallelFileGenerator _fileGenerator = null!;
+    private FileGenerator _fileGenerator = null!;
     private string _tempDir = null!;
     private string _outputFile = null!;
 
@@ -23,7 +23,7 @@ public class FileGeneratorBenchmarks
 
         var pool = DictionaryStringPool.CreateDefault();
         var progress = new FakeTasksProgress();
-        _fileGenerator = new ParallelFileGenerator(pool, progress);
+        _fileGenerator = new FileGenerator(pool, progress);
     }
 
     [GlobalCleanup]
