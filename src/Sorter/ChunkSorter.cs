@@ -1,4 +1,5 @@
 using System.Buffers;
+using K4os.Compression.LZ4.Streams;
 
 namespace FileSorting.Sorter;
 
@@ -68,13 +69,14 @@ public static class ChunkSorter
         string outputPath,
         CancellationToken ct = default)
     {
-        using var stream = new FileStream(
+        using var fileStream = new FileStream(
             outputPath,
             FileMode.Create,
             FileAccess.Write,
             FileShare.None,
             bufferSize: FileStreamBufferSize,
             FileOptions.SequentialScan);
+        using var stream = LZ4Stream.Encode(fileStream, leaveOpen: true);
 
         var writeBuffer = ArrayPool<byte>.Shared.Rent(Constants.WriteBufferSize);
         try
@@ -92,7 +94,7 @@ public static class ChunkSorter
                 {
                     if (bufferPos > 0)
                     {
-                        stream.Write(writeBuffer.AsSpan(0, bufferPos));
+                        stream.Write(writeBuffer, 0, bufferPos);
                         bufferPos = 0;
                     }
 
@@ -114,7 +116,7 @@ public static class ChunkSorter
             // Flush remaining data
             if (bufferPos > 0)
             {
-                stream.Write(writeBuffer.AsSpan(0, bufferPos));
+                stream.Write(writeBuffer, 0, bufferPos);
             }
         }
         finally

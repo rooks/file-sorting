@@ -1,5 +1,6 @@
 using System.Text;
 using FileSorting.Sorter;
+using K4os.Compression.LZ4.Streams;
 using Xunit;
 
 namespace FileSorting.Sorter.Tests.Unit;
@@ -73,7 +74,12 @@ public class ChunkSorterTests
         {
             ChunkSorter.WriteChunk(sorted, tempFile);
 
-            var lines = await File.ReadAllLinesAsync(tempFile);
+            // Chunk files are LZ4-compressed; decompress before reading
+            await using var fileStream = File.OpenRead(tempFile);
+            using var lz4Stream = LZ4Stream.Decode(fileStream);
+            using var reader = new StreamReader(lz4Stream);
+            var text = await reader.ReadToEndAsync();
+            var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             Assert.Equal(2, lines.Length);
             Assert.Equal("1. A", lines[0]);
             Assert.Equal("2. B", lines[1]);

@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.IO.Pipelines;
+using K4os.Compression.LZ4.Streams;
 
 namespace FileSorting.Sorter;
 
@@ -11,6 +12,7 @@ public sealed class SortedFileReader : IDisposable
     private const int FileStreamBufferSize = 256 * 1024; // 256KB read buffer
     private const int MinLineBufferSize = 256;
     private readonly FileStream _stream;
+    private readonly Stream _decompressStream;
     private readonly PipeReader _reader;
     private readonly int _fileIndex;
     private byte[]? _lineBuffer;
@@ -26,7 +28,8 @@ public sealed class SortedFileReader : IDisposable
             FileShare.Read,
             bufferSize: FileStreamBufferSize,
             FileOptions.SequentialScan);
-        _reader = PipeReader.Create(_stream);
+        _decompressStream = LZ4Stream.Decode(_stream, leaveOpen: true);
+        _reader = PipeReader.Create(_decompressStream);
         _fileIndex = fileIndex;
     }
 
@@ -146,6 +149,7 @@ public sealed class SortedFileReader : IDisposable
         }
 
         _reader.Complete();
+        _decompressStream.Dispose();
         _stream.Dispose();
     }
 }

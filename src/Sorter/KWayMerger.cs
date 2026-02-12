@@ -1,5 +1,6 @@
 using System.Buffers;
 using FileSorting.Shared.Progress;
+using K4os.Compression.LZ4.Streams;
 
 namespace FileSorting.Sorter;
 
@@ -25,7 +26,7 @@ public sealed class KWayMerger(
 
         if (inputFiles.Length <= mergeWidth)
         {
-            await MergeSinglePassAsync(inputFiles, outputPath, ct);
+            await MergeSinglePassAsync(inputFiles, outputPath, compressOutput: false, ct);
             progress.Update(inputFiles.Length);
         }
         else
@@ -36,7 +37,8 @@ public sealed class KWayMerger(
                 tempFileManager,
                 ct);
 
-            File.Move(finalTemp, outputPath, overwrite: true);
+            // finalTemp is LZ4-compressed; decompress to final output
+            await MergeSinglePassAsync([finalTemp], outputPath, compressOutput: false, ct);
         }
 
         progress.Stop();
@@ -58,6 +60,7 @@ public sealed class KWayMerger(
     private async Task MergeSinglePassAsync(
         string[] inputFiles,
         string outputPath,
+        bool compressOutput,
         CancellationToken ct = default)
     {
         if (inputFiles.Length == 0)
@@ -65,33 +68,42 @@ public sealed class KWayMerger(
 
         if (inputFiles.Length == 1)
         {
-            File.Copy(inputFiles[0], outputPath, overwrite: true);
-            return;
+            if (compressOutput)
+            {
+                // Intermediate merge: input is already compressed, just copy
+                File.Copy(inputFiles[0], outputPath, overwrite: true);
+                return;
+            }
+            // Final output: fall through to normal merge to decompress
         }
 
         var readers = new SortedFileReader[inputFiles.Length];
-        var pq = new PriorityQueue<MergeEntry, MergeEntry>(MergeEntryComparer.Instance);
+        var tree = new LoserTree<MergeEntry>(inputFiles.Length, MergeEntryComparer.Instance);
 
         try
         {
-            // Initialize readers and prime the priority queue
+            // Initialize readers and prime the loser tree
             for (var i = 0; i < inputFiles.Length; i++)
             {
                 readers[i] = new SortedFileReader(inputFiles[i], i);
                 var entry = await readers[i].ReadNextAsync(ct);
                 if (entry.HasValue)
                 {
-                    pq.Enqueue(entry.Value, entry.Value);
+                    tree.SetLeaf(i, entry.Value);
                 }
             }
 
-            await using var outStream = new FileStream(
+            tree.Build();
+
+            await using var fileStream = new FileStream(
                 outputPath,
                 FileMode.Create,
                 FileAccess.Write,
                 FileShare.None,
                 bufferSize: FileStreamBufferSize,
                 FileOptions.SequentialScan);
+            var lz4Stream = compressOutput ? LZ4Stream.Encode(fileStream, leaveOpen: true) : null;
+            var outStream = (Stream?)lz4Stream ?? fileStream;
 
             var writeBuffer = ArrayPool<byte>.Shared.Rent(Constants.WriteBufferSize);
             try
@@ -100,11 +112,12 @@ public sealed class KWayMerger(
                 long linesWritten = 0;
                 const long reportInterval = 100_000;
 
-                while (pq.Count > 0)
+                while (tree.Count > 0)
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    var smallest = pq.Dequeue();
+                    var winnerIdx = tree.WinnerIndex;
+                    var smallest = tree.WinnerValue;
 
                     // Write the line using binary buffer (no string allocation)
                     var lineLength = smallest.LineBuffer.Length;
@@ -115,7 +128,7 @@ public sealed class KWayMerger(
                     {
                         if (bufferPos > 0)
                         {
-                            outStream.Write(writeBuffer.AsSpan(0, bufferPos));
+                            outStream.Write(writeBuffer, 0, bufferPos);
                             bufferPos = 0;
                         }
 
@@ -142,18 +155,22 @@ public sealed class KWayMerger(
                     }
 
                     // Read next line from the same file
-                    var reader = readers[smallest.FileIndex];
+                    var reader = readers[winnerIdx];
                     var next = await reader.ReadNextAsync(ct);
                     if (next.HasValue)
                     {
-                        pq.Enqueue(next.Value, next.Value);
+                        tree.ReplaceWinner(next.Value);
+                    }
+                    else
+                    {
+                        tree.DeactivateWinner();
                     }
                 }
 
                 // Flush remaining data
                 if (bufferPos > 0)
                 {
-                    outStream.Write(writeBuffer.AsSpan(0, bufferPos));
+                    outStream.Write(writeBuffer, 0, bufferPos);
                 }
 
                 progress.Update(linesWritten);
@@ -161,6 +178,7 @@ public sealed class KWayMerger(
             finally
             {
                 ArrayPool<byte>.Shared.Return(writeBuffer);
+                lz4Stream?.Dispose();
             }
         }
         finally
@@ -202,6 +220,7 @@ public sealed class KWayMerger(
                     await MergeSinglePassAsync(
                         batches[index],
                         outputFile,
+                        compressOutput: true,
                         token);
 
                     var mergedCount = Interlocked.Increment(ref completedMerges);
@@ -219,7 +238,7 @@ public sealed class KWayMerger(
         }
 
         var finalTemp = tempManager.CreateMergeFile(pass, 0);
-        await MergeSinglePassAsync(currentFiles, finalTemp, ct);
+        await MergeSinglePassAsync(currentFiles, finalTemp, compressOutput: true, ct);
         var finalMergeCount = Interlocked.Increment(ref completedMerges);
         progress.Update(finalMergeCount);
         return finalTemp;
